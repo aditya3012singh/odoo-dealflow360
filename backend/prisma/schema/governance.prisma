@@ -1,0 +1,28 @@
+model DiscountPolicy {
+  id               String            @id @default(uuid())
+  customerTierId   String
+  customerTier     CustomerTier      @relation(fields: [customerTierId], references: [id], onDelete: Cascade)
+  categoryId       String?
+  category         Category?         @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  maxDiscount      Decimal           @db.Decimal(5, 2)
+  minMargin        Decimal?          @db.Decimal(5, 2)
+  priority         Int               @default(1)
+  isActive         Boolean           @default(true)
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+
+  @@index([customerTierId, categoryId])
+}
+
+model ApprovalRule {
+  id               String            @id @default(uuid())
+  minRiskScore     Decimal           @db.Decimal(8, 2)
+  maxRiskScore     Decimal           @db.Decimal(8, 2)
+  approvalLevel    Int               @default(1)
+  requiredRole     Role              @default(SALES_MANAGER)
+  isActive         Boolean           @default(true)
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+
+  @@index([minRiskScore, maxRiskScore])
+}

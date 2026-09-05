@@ -1,0 +1,36 @@
+model CustomerTier {
+  id              String            @id @default(uuid())
+  name            String            @unique // Bronze, Silver, Gold, Platinum
+  defaultDiscount Decimal           @default(0.00) @db.Decimal(5, 2)
+  description     String?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  customers       Customer[]
+  discountPolicies DiscountPolicy[]
+  priceLists      PriceList[]
+}
+
+model Customer {
+  id              String            @id @default(uuid())
+  name            String
+  email           String            @unique
+  phone           String?
+  companyName     String
+  customerTierId  String
+  customerTier    CustomerTier      @relation(fields: [customerTierId], references: [id])
+  portalEnabled   Boolean           @default(true)
+  portalToken     String?           @unique
+
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  quotations      Quotation[]
+  orders          Order[]
+  subscriptions   Subscription[]
+  invoices        Invoice[]
+  negotiations    NegotiationRequest[]
+
+  @@index([customerTierId])
+  @@index([email])
+}

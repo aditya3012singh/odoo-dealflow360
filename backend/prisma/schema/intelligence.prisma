@@ -1,0 +1,62 @@
+model DealAlert {
+  id                    String            @id @default(uuid())
+  quotationId           String?
+  quotation             Quotation?        @relation(fields: [quotationId], references: [id], onDelete: Cascade)
+  orderId               String?
+  order                 Order?            @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  alertType             AlertType         @default(STALLED_DEAL)
+  severity              AlertSeverity     @default(MEDIUM)
+
+  title                 String
+  description           String
+
+  status                AlertStatus       @default(OPEN)
+  nudgeCount            Int               @default(0)
+
+  createdAt             DateTime          @default(now())
+  resolvedAt            DateTime?
+
+  @@index([alertType])
+  @@index([status])
+  @@index([quotationId])
+}
+
+enum AlertType {
+  STALLED_DEAL
+  DISCOUNT_ANOMALY
+  DELIVERY_SLIPPAGE
+}
+
+enum AlertSeverity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum AlertStatus {
+  OPEN
+  ACKNOWLEDGED
+  RESOLVED
+}
+
+model OutboxEvent {
+  id                    String            @id @default(uuid())
+  eventType             String            // QUOTE_SUBMITTED, QUOTE_APPROVED, COUNTER_PROPOSED, FULFILLMENT_ALLOCATED
+  payload               Json
+  status                OutboxStatus      @default(PENDING)
+  retryCount            Int               @default(0)
+  error                 String?
+
+  createdAt             DateTime          @default(now())
+  processedAt           DateTime?
+
+  @@index([status, createdAt])
+}
+
+enum OutboxStatus {
+  PENDING
+  PROCESSED
+  FAILED
+}
