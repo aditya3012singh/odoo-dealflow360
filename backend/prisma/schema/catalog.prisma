@@ -29,6 +29,7 @@ model Product {
   priceListItems   PriceListItem[]
   inventory        Inventory[]
   quotationItems   QuotationItem[]
+  orderItems       OrderItem[]
   subscriptions    Subscription[]
   invoiceItems     InvoiceItem[]
   backorders       Backorder[]

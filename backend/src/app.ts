@@ -13,6 +13,11 @@ import { register } from './core/metrics/index.js';
 import { apiRateLimiter } from './api/middleware/rateLimiter.js';
 import AuthRouter from './modules/auth/auth.routes.js';
 import HealthRouter from './core/health/health.routes.js';
+import QuotationRouter from './modules/quotations/quotation.routes.js';
+import ApprovalRouter from './modules/approval-engine/approval.routes.js';
+import NegotiationRouter from './modules/negotiation/negotiation.routes.js';
+import FulfillmentRouter from './modules/fulfillment/fulfillment.routes.js';
+import BillingRouter from './modules/billing/billing.routes.js';
 import healthCheckService from './core/health/healthCheck.js';
 import passport from './modules/auth/passport.js';
 import { TracedRequest } from './api/middleware/traceId.middleware.js';
@@ -85,6 +90,11 @@ app.use('/api/', apiRateLimiter);
 // App Router bindings
 app.use('/api/auth', AuthRouter);
 app.use('/api/health', HealthRouter);
+app.use('/api/quotations', QuotationRouter);
+app.use('/api/approvals', ApprovalRouter);
+app.use('/api/portal', NegotiationRouter);
+app.use('/api/fulfillment', FulfillmentRouter);
+app.use('/api/billing', BillingRouter);
 
 // Global Uncaught Error Handler
 app.use(errorHandler);

@@ -98,6 +98,6 @@ export function recordApiRequest({ method, endpoint, statusCode, duration }: {
   
   if (statusCode >= 400) {
     const errorType = statusCode >= 500 ? 'server_error' : 'client_error';
-    apiErrorsTotal.labels(endpoint, errorType, statusCode.toString()).inc();
+    apiErrorsTotal.labels(method, endpoint, statusCode.toString(), errorType).inc();
   }
 }

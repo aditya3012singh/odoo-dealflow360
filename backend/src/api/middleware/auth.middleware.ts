@@ -23,6 +23,22 @@ export function authenticateJWT(req: TracedRequest, res: Response, next: NextFun
     }
 }
 
+export function optionalAuth(req: TracedRequest, res: Response, next: NextFunction): void {
+    const authHeader = req.headers.authorization;
+    if (authHeader) {
+        const token = authHeader.split(' ')[1];
+        jwt.verify(token, env.JWT_ACCESS_SECRET, (err: any, user: any) => {
+            if (!err && user) {
+                req.user = user;
+                req.userId = user.id;
+            }
+            next();
+        });
+    } else {
+        next();
+    }
+}
+
 export function authorizeRole(roles: string[]) {
     return (req: TracedRequest, res: Response, next: NextFunction): void => {
         if (!req.user || !roles.includes(req.user.role)) {

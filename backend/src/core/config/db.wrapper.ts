@@ -1,5 +1,6 @@
-﻿import structuredLogger from '../logger/structuredLogger.js';
+import structuredLogger from '../logger/structuredLogger.js';
 import { recordDbQuery, recordDbTransaction } from '../metrics/index.js';
+import { prisma } from './db.js';
 
 interface DBExecuteOptions {
     retries?: number;
@@ -27,7 +28,8 @@ class DBWrapper {
             const start = Date.now();
 
             try {
-                const result = await executionFn(options.tx);
+                const client = options.tx || prisma;
+                const result = await executionFn(client);
                 const duration = Date.now() - start;
 
                 // Track metric success

@@ -1,4 +1,4 @@
-﻿import { PrismaClient } from '@prisma/client';
+import { PrismaClient } from '@prisma/client';
 import structuredLogger from '../logger/structuredLogger.js';
 
 const prisma = new PrismaClient({
@@ -35,6 +35,11 @@ class Database {
         await prisma.$disconnect();
     }
 }
+
+export const TX_OPTIONS = {
+    maxWait: 15000,
+    timeout: 30000,
+};
 
 export { prisma };
 export default Database;

@@ -1,4 +1,4 @@
-import { prisma } from '../../core/config/db.js';
+import { prisma, TX_OPTIONS } from '../../core/config/db.js';
 import { DiscountEngine } from '../discount-engine/discount.engine.js';
 import { QuotationStatus, ApprovalStatus, Role, CustomerStatus } from '@prisma/client';
 
@@ -120,7 +120,7 @@ export class QuotationService {
           approvals: true,
         },
       });
-    });
+    }, TX_OPTIONS);
   }
 
   /**
@@ -275,7 +275,7 @@ export class QuotationService {
       });
 
       return quote;
-    });
+    }, TX_OPTIONS);
   }
 
   /**
