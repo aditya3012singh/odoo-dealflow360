@@ -25,6 +25,9 @@ import {
   ShieldCheck,
   KeyRound,
   Download,
+  FileText,
+  Filter,
+  History,
 } from 'lucide-react';
 import { Badge } from '../../components/ui/Badge';
 import { StatCardSkeleton, TableRowSkeleton, CardSkeleton } from '../../components/ui/Skeleton';
@@ -34,25 +37,26 @@ import {
   type AdminUser,
   type AdminPolicies,
   type NewProductPayload,
+  type AuditLogItem,
 } from '../../services/admin.service';
 import { quotationService } from '../../services/quotation.service';
 import { ROLE_COLORS, type Role, type Product, type Category, type CustomerTier } from '../../types';
 
 export function AdminConfigPage() {
   const [searchParams, setSearchParams] = useSearchParams();
-  const initialTab = (searchParams.get('tab') as 'products' | 'policies' | 'warehouses' | 'users') || 'products';
+  const initialTab = (searchParams.get('tab') as 'products' | 'policies' | 'warehouses' | 'users' | 'audit') || 'products';
 
-  const [activeTab, setActiveTab] = useState<'products' | 'policies' | 'warehouses' | 'users'>(initialTab);
+  const [activeTab, setActiveTab] = useState<'products' | 'policies' | 'warehouses' | 'users' | 'audit'>(initialTab);
 
   // Sync tab with URL
   useEffect(() => {
     const tab = searchParams.get('tab');
-    if (tab && ['products', 'policies', 'warehouses', 'users'].includes(tab)) {
+    if (tab && ['products', 'policies', 'warehouses', 'users', 'audit'].includes(tab)) {
       setActiveTab(tab as any);
     }
   }, [searchParams]);
 
-  const handleTabChange = (tab: 'products' | 'policies' | 'warehouses' | 'users') => {
+  const handleTabChange = (tab: 'products' | 'policies' | 'warehouses' | 'users' | 'audit') => {
     setActiveTab(tab);
     setSearchParams({ tab });
   };
@@ -118,6 +122,39 @@ export function AdminConfigPage() {
   const [tierDiscountInput, setTierDiscountInput] = useState<number>(0);
   const [submittingTier, setSubmittingTier] = useState(false);
 
+  // Phase 3: Audit Trail States
+  const [auditLogs, setAuditLogs] = useState<AuditLogItem[]>([]);
+  const [auditTotal, setAuditTotal] = useState(0);
+  const [auditPage, setAuditPage] = useState(1);
+  const [auditTotalPages, setAuditTotalPages] = useState(1);
+  const [auditEntityFilter, setAuditEntityFilter] = useState<string>('ALL');
+  const [loadingAudit, setLoadingAudit] = useState(false);
+
+  const fetchAuditLogs = async (page = 1, entityType = auditEntityFilter) => {
+    try {
+      setLoadingAudit(true);
+      const res = await adminService.listAuditLogs({
+        page,
+        limit: 15,
+        entityType: entityType === 'ALL' ? undefined : entityType,
+      });
+      setAuditLogs(res.logs || []);
+      setAuditTotal(res.pagination?.total || 0);
+      setAuditPage(res.pagination?.page || 1);
+      setAuditTotalPages(res.pagination?.totalPages || 1);
+    } catch (err: any) {
+      console.error('Failed to load audit logs:', err);
+    } finally {
+      setLoadingAudit(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'audit') {
+      fetchAuditLogs(auditPage, auditEntityFilter);
+    }
+  }, [activeTab, auditPage, auditEntityFilter]);
+
   const [editingRule, setEditingRule] = useState<any | null>(null);
   const [submittingRule, setSubmittingRule] = useState(false);
 
@@ -139,19 +176,23 @@ export function AdminConfigPage() {
     try {
       if (!silent) setLoading(true);
       setError(null);
-      const [prodData, polData, whData, usersData] = await Promise.all([
+      const [prodData, polData, whData, usersData, auditData] = await Promise.all([
         quotationService.getProducts().catch(() => []),
         adminService.listPolicies().catch(() => null),
         adminService.listWarehouses().catch(() => []),
         adminService.listUsers().catch(() => []),
+        adminService.listAuditLogs({ page: 1, limit: 1 }).catch(() => null),
       ]);
       setProducts(prodData);
       setPolicies(polData);
+      setWarehouses(whData);
+      setUsers(usersData);
       if (polData?.categories) {
         setCategories(polData.categories);
       }
-      setWarehouses(whData);
-      setUsers(usersData);
+      if (auditData?.pagination?.total) {
+        setAuditTotal(auditData.pagination.total);
+      }
     } catch (err: any) {
       console.error('Failed to load admin config data:', err);
       setError(err.response?.data?.message || 'Failed to fetch configuration');
@@ -631,6 +672,18 @@ export function AdminConfigPage() {
         >
           <Users className="w-4 h-4" />
           User & Role Administration ({users.length})
+        </button>
+
+        <button
+          onClick={() => handleTabChange('audit')}
+          className={`pb-3 flex items-center gap-2 border-b-2 transition-all ${
+            activeTab === 'audit'
+              ? 'border-slate-900 dark:border-white text-slate-900 dark:text-white font-semibold'
+              : 'border-transparent text-slate-500 dark:text-zinc-400 hover:text-slate-800 dark:hover:text-zinc-200'
+          }`}
+        >
+          <FileText className="w-4 h-4" />
+          Audit Trail ({auditTotal || 'Live'})
         </button>
       </div>
 
@@ -1164,6 +1217,168 @@ export function AdminConfigPage() {
                 </tbody>
               </table>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* TAB 5: COMPLIANCE AUDIT TRAIL */}
+      {activeTab === 'audit' && (
+        <div className="space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white dark:bg-zinc-900 p-4 rounded-xl border border-slate-200 dark:border-zinc-800 shadow-sm">
+            <div>
+              <h3 className="text-sm font-semibold text-slate-900 dark:text-white flex items-center gap-2">
+                <History className="w-4 h-4 text-purple-500" />
+                System Audit & Governance Log
+              </h3>
+              <p className="text-xs text-slate-500 dark:text-zinc-400 mt-0.5">
+                Immutable compliance event stream tracking user changes, stock allocations, pricing policy edits, and deal updates.
+              </p>
+            </div>
+
+            <div className="flex items-center gap-2.5">
+              <div className="flex items-center gap-2">
+                <Filter className="w-3.5 h-3.5 text-slate-400" />
+                <select
+                  value={auditEntityFilter}
+                  onChange={(e) => {
+                    setAuditEntityFilter(e.target.value);
+                    setAuditPage(1);
+                  }}
+                  className="px-2.5 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-zinc-800 bg-slate-50 dark:bg-zinc-950 text-slate-700 dark:text-zinc-300 font-medium focus:outline-none"
+                >
+                  <option value="ALL">All Entities</option>
+                  <option value="CUSTOMER">Customers</option>
+                  <option value="INVENTORY">Inventory / Stock</option>
+                  <option value="PRODUCT">Products</option>
+                  <option value="USER">Staff & Users</option>
+                  <option value="QUOTATION">Quotations</option>
+                  <option value="CONFIG">Policies</option>
+                </select>
+              </div>
+
+              <button
+                onClick={() => fetchAuditLogs(auditPage, auditEntityFilter)}
+                disabled={loadingAudit}
+                className="p-2 text-slate-500 hover:text-slate-800 dark:text-zinc-400 dark:hover:text-zinc-200 rounded-lg border border-slate-200 dark:border-zinc-800 hover:bg-slate-100 dark:hover:bg-zinc-800/60 transition"
+                title="Refresh Audit Trail"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${loadingAudit ? 'animate-spin' : ''}`} />
+              </button>
+            </div>
+          </div>
+
+          {/* Audit Log Table */}
+          <div className="bg-white dark:bg-zinc-900 rounded-xl border border-slate-200 dark:border-zinc-800 shadow-sm overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-slate-50/75 dark:bg-zinc-950/60 border-b border-slate-200 dark:border-zinc-800 text-[11px] uppercase tracking-wider text-slate-500 dark:text-zinc-400 font-semibold">
+                  <tr>
+                    <th className="px-5 py-3">Timestamp</th>
+                    <th className="px-5 py-3">Entity</th>
+                    <th className="px-5 py-3">Action</th>
+                    <th className="px-5 py-3">Performed By</th>
+                    <th className="px-5 py-3">Description / Reason</th>
+                    <th className="px-5 py-3 text-right">Changes & Values</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-zinc-800/60">
+                  {loadingAudit ? (
+                    Array.from({ length: 5 }).map((_, i) => (
+                      <TableRowSkeleton key={i} columns={6} />
+                    ))
+                  ) : auditLogs.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="px-5 py-12 text-center text-slate-400 dark:text-zinc-500">
+                        <History className="w-8 h-8 mx-auto mb-2 opacity-30" />
+                        No audit events recorded for this filter.
+                      </td>
+                    </tr>
+                  ) : (
+                    auditLogs.map((log) => (
+                      <tr key={log.id} className="hover:bg-slate-50/60 dark:hover:bg-zinc-800/30 transition">
+                        <td className="px-5 py-3.5 text-slate-500 dark:text-zinc-400 whitespace-nowrap font-mono text-[11px]">
+                          {new Date(log.createdAt).toLocaleString('en-IN', {
+                            dateStyle: 'short',
+                            timeStyle: 'medium',
+                          })}
+                        </td>
+                        <td className="px-5 py-3.5 whitespace-nowrap">
+                          <span className="px-2 py-0.5 rounded font-mono font-semibold text-[10px] bg-slate-100 dark:bg-zinc-800 text-slate-700 dark:text-zinc-300">
+                            {log.entityType}
+                          </span>
+                        </td>
+                        <td className="px-5 py-3.5 whitespace-nowrap">
+                          <Badge
+                            variant={
+                              log.action === 'CREATED'
+                                ? 'success'
+                                : log.action === 'DELETED'
+                                ? 'danger'
+                                : log.action === 'UPDATED'
+                                ? 'warning'
+                                : 'default'
+                            }
+                          >
+                            {log.action}
+                          </Badge>
+                        </td>
+                        <td className="px-5 py-3.5 whitespace-nowrap">
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-medium text-slate-900 dark:text-white">
+                              {log.performedBy}
+                            </span>
+                            <span className="text-[10px] font-mono text-slate-400 dark:text-zinc-500">
+                              ({log.userRole})
+                            </span>
+                          </div>
+                        </td>
+                        <td className="px-5 py-3.5 text-slate-600 dark:text-zinc-300 max-w-xs truncate">
+                          {log.reason || `System recorded ${log.action.toLowerCase()} on ${log.entityType}`}
+                        </td>
+                        <td className="px-5 py-3.5 text-right font-mono text-[10px]">
+                          {log.newValue ? (
+                            <span
+                              className="px-2 py-1 rounded bg-slate-100 dark:bg-zinc-800 text-slate-600 dark:text-zinc-400 inline-block max-w-[220px] truncate"
+                              title={JSON.stringify(log.newValue)}
+                            >
+                              {JSON.stringify(log.newValue)}
+                            </span>
+                          ) : (
+                            <span className="text-slate-400">—</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Pagination Controls */}
+            {auditTotalPages > 1 && (
+              <div className="flex items-center justify-between px-5 py-3 border-t border-slate-200 dark:border-zinc-800 bg-slate-50/40 dark:bg-zinc-950/40 text-xs">
+                <span className="text-slate-500 dark:text-zinc-400">
+                  Showing Page <strong className="text-slate-900 dark:text-white">{auditPage}</strong> of{' '}
+                  <strong className="text-slate-900 dark:text-white">{auditTotalPages}</strong> ({auditTotal} total records)
+                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setAuditPage((p) => Math.max(1, p - 1))}
+                    disabled={auditPage <= 1 || loadingAudit}
+                    className="px-2.5 py-1 rounded border border-slate-200 dark:border-zinc-800 text-slate-700 dark:text-zinc-300 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-100 dark:hover:bg-zinc-800 transition"
+                  >
+                    Previous
+                  </button>
+                  <button
+                    onClick={() => setAuditPage((p) => Math.min(auditTotalPages, p + 1))}
+                    disabled={auditPage >= auditTotalPages || loadingAudit}
+                    className="px-2.5 py-1 rounded border border-slate-200 dark:border-zinc-800 text-slate-700 dark:text-zinc-300 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-100 dark:hover:bg-zinc-800 transition"
+                  >
+                    Next
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

@@ -13,10 +13,32 @@ export class QuotationService {
    * Generate next sequential quotation number
    */
   static async generateQuotationNumber(): Promise<string> {
-    const count = await prisma.quotation.count();
     const datePart = new Date().getFullYear();
-    const sequence = (count + 1).toString().padStart(4, '0');
-    return `Q-${datePart}-${sequence}`;
+    const prefix = `Q-${datePart}-`;
+    const latest = await prisma.quotation.findFirst({
+      where: { quotationNumber: { startsWith: prefix } },
+      orderBy: { quotationNumber: 'desc' },
+      select: { quotationNumber: true },
+    });
+
+    let nextSeq = 1;
+    if (latest && latest.quotationNumber) {
+      const parts = latest.quotationNumber.split('-');
+      const lastSeq = parseInt(parts[parts.length - 1], 10);
+      if (!isNaN(lastSeq)) {
+        nextSeq = lastSeq + 1;
+      }
+    }
+
+    let candidate = `${prefix}${nextSeq.toString().padStart(4, '0')}`;
+    let exists = await prisma.quotation.findUnique({ where: { quotationNumber: candidate } });
+    while (exists) {
+      nextSeq++;
+      candidate = `${prefix}${nextSeq.toString().padStart(4, '0')}`;
+      exists = await prisma.quotation.findUnique({ where: { quotationNumber: candidate } });
+    }
+
+    return candidate;
   }
 
   /**
@@ -40,7 +62,7 @@ export class QuotationService {
       include: {
         customer: { include: { customerTier: true } },
         salesRep: { select: { id: true, username: true, email: true, role: true } },
-        items: { include: { product: true } },
+        items: { include: { product: { include: { category: true } } } },
       },
     });
 
@@ -122,7 +144,7 @@ export class QuotationService {
         include: {
           customer: { include: { customerTier: true } },
           salesRep: { select: { id: true, username: true, email: true, role: true } },
-          items: { include: { product: true } },
+          items: { include: { product: { include: { category: true } } } },
           approvals: true,
         },
       });

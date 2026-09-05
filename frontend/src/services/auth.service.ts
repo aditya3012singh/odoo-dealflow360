@@ -31,6 +31,16 @@ export const authService = {
     return response.data.data?.user || response.data.data;
   },
 
+  async updateProfile(data: { name?: string; username?: string; email?: string }): Promise<User> {
+    const response = await api.put('/auth/profile', data);
+    return response.data.data?.user || response.data.data;
+  },
+
+  async changePassword(data: { currentPassword: string; newPassword: string }): Promise<any> {
+    const response = await api.post('/auth/change-password', data);
+    return response.data;
+  },
+
   logout() {
     localStorage.removeItem('accessToken');
     window.location.href = '/workspace';
@@ -40,3 +50,4 @@ export const authService = {
     return !!localStorage.getItem('accessToken');
   },
 };
+

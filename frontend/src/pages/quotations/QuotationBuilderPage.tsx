@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft,
@@ -16,6 +16,15 @@ import {
   RefreshCw,
   FileCheck,
   MessageSquare,
+  Search,
+  Printer,
+  Copy,
+  Check,
+  Info,
+  DollarSign,
+  Cpu,
+  Clock,
+  ExternalLink,
 } from 'lucide-react';
 import { useAppSelector } from '../../store/hooks';
 import { quotationService } from '../../services/quotation.service';
@@ -37,11 +46,18 @@ export function QuotationBuilderPage() {
 
   // Core domain states
   const [quotation, setQuotation] = useState<Quotation | null>(null);
+  const quotationRef = useRef<Quotation | null>(null);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [recommendations, setRecommendations] = useState<Recommendation[]>([]);
   const [selectedCustomerId, setSelectedCustomerId] = useState<string>('');
   const [selectedCategory, setSelectedCategory] = useState<string>('ALL');
+  const [catalogSearch, setCatalogSearch] = useState<string>('');
+
+  // Keep quotationRef in sync with quotation state
+  useEffect(() => {
+    quotationRef.current = quotation;
+  }, [quotation]);
 
   // Interactive line item draft state map: itemId -> { quantity, discountPercentage }
   const [itemDrafts, setItemDrafts] = useState<
@@ -59,12 +75,22 @@ export function QuotationBuilderPage() {
   const [approvalReason, setApprovalReason] = useState('');
   const [processingApproval, setProcessingApproval] = useState(false);
 
+  // Blended Risk Score Explainability Modal
+  const [showRiskBreakdown, setShowRiskBreakdown] = useState(false);
+
   // Loading & notification states
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
+  const [addingRecId, setAddingRecId] = useState<string | null>(null);
+  const [addingProductId, setAddingProductId] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  const [copiedPortalLink, setCopiedPortalLink] = useState(false);
+
+  // Delete modal state
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   // Sync itemDrafts whenever quotation items change
   useEffect(() => {
@@ -97,24 +123,27 @@ export function QuotationBuilderPage() {
         ]);
 
         if (!isMounted) return;
-        setCustomers(custData);
-        setProducts(prodData);
+        setCustomers(custData || []);
+        setProducts(prodData || []);
 
         if (id && id !== 'new') {
-          // Only fetch if quotation isn't already loaded or if id changed
-          if (!quotation || quotation.id !== id) {
-            setActionLoading(true);
-            const q = await quotationService.getQuotation(id);
-            if (!isMounted) return;
-            setQuotation(q);
-            setSelectedCustomerId(q.customerId);
-            loadRecs(id);
-            fetchComments(id);
+          // If we already hold this quotation with items in memory, skip re-fetching to prevent overwriting new additions
+          if (quotationRef.current && quotationRef.current.id === id) {
+            return;
           }
+          setActionLoading(true);
+          const q = await quotationService.getQuotation(id);
+          if (!isMounted) return;
+          setQuotation(q);
+          quotationRef.current = q;
+          setSelectedCustomerId(q.customerId);
+          loadRecs(id);
+          fetchComments(id);
         } else {
           setQuotation(null);
+          quotationRef.current = null;
           setComments([]);
-          if (custData.length > 0 && !selectedCustomerId) {
+          if (custData && custData.length > 0 && !selectedCustomerId) {
             setSelectedCustomerId(custData[0].id);
           }
         }
@@ -139,15 +168,19 @@ export function QuotationBuilderPage() {
 
   // Handler: Create new Draft quotation
   const handleCreateDraft = async () => {
-    if (!selectedCustomerId) {
-      setError('Please select a customer first.');
+    const effectiveCustomerId = selectedCustomerId || (customers.length > 0 ? customers[0].id : '');
+    if (!effectiveCustomerId) {
+      setError('Please select a customer account first.');
       return;
     }
     try {
       setActionLoading(true);
       setError(null);
-      const newQuote = await quotationService.createQuotation(selectedCustomerId);
+      const newQuote = await quotationService.createQuotation(effectiveCustomerId);
       setQuotation(newQuote);
+      quotationRef.current = newQuote;
+      setSuccessMsg(`Draft deal ${newQuote.quotationNumber} initialized.`);
+      setTimeout(() => setSuccessMsg(null), 3500);
       navigate(`/quotations/${newQuote.id}`, { replace: true });
     } catch (err: any) {
       console.error('Error creating quotation:', err);
@@ -160,14 +193,22 @@ export function QuotationBuilderPage() {
   // Handler: Add product to quote
   const handleAddProduct = async (product: Product) => {
     try {
+      setAddingProductId(product.id);
       setActionLoading(true);
       setError(null);
 
-      let targetQuote = quotation;
+      const effectiveCustomerId = selectedCustomerId || (customers.length > 0 ? customers[0].id : '');
+      if (!effectiveCustomerId) {
+        setError('Please select a customer account first.');
+        return;
+      }
+
+      let targetQuote = quotationRef.current || quotation;
+      const isNewDeal = !targetQuote;
       if (!targetQuote) {
-        targetQuote = await quotationService.createQuotation(selectedCustomerId);
+        targetQuote = await quotationService.createQuotation(effectiveCustomerId);
         setQuotation(targetQuote);
-        navigate(`/quotations/${targetQuote.id}`, { replace: true });
+        quotationRef.current = targetQuote;
       }
 
       const updated = await quotationService.addItem(targetQuote.id, {
@@ -175,12 +216,21 @@ export function QuotationBuilderPage() {
         quantity: 1,
         discountPercentage: 0,
       });
+
       setQuotation(updated);
+      quotationRef.current = updated;
+      setSuccessMsg(`Added "${product.name}" to quotation.`);
+      setTimeout(() => setSuccessMsg(null), 3000);
       loadRecs(updated.id);
+
+      if (isNewDeal || id === 'new') {
+        navigate(`/quotations/${targetQuote.id}`, { replace: true });
+      }
     } catch (err: any) {
       setError(err.response?.data?.message || 'Failed to add product');
     } finally {
       setActionLoading(false);
+      setAddingProductId(null);
     }
   };
 
@@ -188,6 +238,7 @@ export function QuotationBuilderPage() {
   const handleAddRecommendation = async (rec: Recommendation) => {
     if (!quotation) return;
     try {
+      setAddingRecId(rec.id);
       setActionLoading(true);
       setError(null);
       const updated = await quotationService.addItem(quotation.id, {
@@ -196,13 +247,14 @@ export function QuotationBuilderPage() {
         discountPercentage: 0,
       });
       setQuotation(updated);
-      setSuccessMsg(`Added recommended item: ${rec.name}`);
-      setTimeout(() => setSuccessMsg(null), 3000);
+      setSuccessMsg(`Added upsell item: ${rec.name}`);
+      setTimeout(() => setSuccessMsg(null), 3500);
       loadRecs(updated.id);
     } catch (err: any) {
       setError(err.response?.data?.message || 'Failed to add recommendation');
     } finally {
       setActionLoading(false);
+      setAddingRecId(null);
     }
   };
 
@@ -248,7 +300,7 @@ export function QuotationBuilderPage() {
   const loadRecs = async (quoteId: string) => {
     try {
       const recs = await quotationService.getRecommendations(quoteId);
-      setRecommendations(recs);
+      setRecommendations(recs || []);
     } catch (e) {
       console.warn('Could not reload recommendations:', e);
     }
@@ -304,9 +356,6 @@ export function QuotationBuilderPage() {
   };
 
   // Handler: Delete entire quotation
-  const [showDeleteModal, setShowDeleteModal] = useState(false);
-  const [deleting, setDeleting] = useState(false);
-
   const confirmDeleteQuotation = async () => {
     if (!quotation) return;
     try {
@@ -345,40 +394,72 @@ export function QuotationBuilderPage() {
     }
   };
 
-  // Safe numerical calculations
-  const margin = Number(quotation?.marginPercentage || 0);
-  const marginColor =
-    margin >= 30
-      ? 'text-emerald-600 dark:text-emerald-400'
-      : margin >= 20
-      ? 'text-amber-600 dark:text-amber-400'
-      : 'text-rose-600 dark:text-rose-400';
+  // Handler: Copy Customer Portal Negotiation Link
+  const handleCopyPortalLink = () => {
+    if (!quotation) return;
+    const portalUrl = `${window.location.origin}/portal/quotations/${quotation.id}`;
+    navigator.clipboard.writeText(portalUrl);
+    setCopiedPortalLink(true);
+    setSuccessMsg('Customer negotiation link copied to clipboard! Share with client for zero-trust review.');
+    setTimeout(() => {
+      setCopiedPortalLink(false);
+      setSuccessMsg(null);
+    }, 4000);
+  };
 
-  const marginProgressColor =
-    margin >= 30 ? 'bg-emerald-500' : margin >= 20 ? 'bg-amber-500' : 'bg-rose-500';
+  // Safe numerical calculations
+  const hasItems = Boolean(quotation?.items && quotation.items.length > 0);
+  const margin = hasItems ? Number(quotation?.marginPercentage || 0) : 0;
+  const marginColor = !hasItems
+    ? 'text-slate-400 dark:text-zinc-500'
+    : margin >= 30
+    ? 'text-emerald-600 dark:text-emerald-400'
+    : margin >= 20
+    ? 'text-amber-600 dark:text-amber-400'
+    : 'text-rose-600 dark:text-rose-400';
+
+  const marginProgressColor = !hasItems
+    ? 'bg-slate-200 dark:bg-zinc-800'
+    : margin >= 30
+    ? 'bg-emerald-500'
+    : margin >= 20
+    ? 'bg-amber-500'
+    : 'bg-rose-500';
 
   const riskScore = Number(quotation?.riskScore || 0);
 
   const getRiskDetails = () => {
+    if (!hasItems) {
+      return {
+        label: 'Awaiting Products',
+        levelBadge: 'Draft in Progress',
+        description: 'Add products from the catalog to evaluate live margin, customer tier compliance, and governance risk.',
+        badgeClass: 'bg-slate-50 text-slate-700 dark:bg-zinc-950/40 dark:text-zinc-300 border-slate-200 dark:border-zinc-800',
+        icon: Info,
+      };
+    }
     if (riskScore <= 10) {
       return {
-        label: 'Low Risk',
-        description: 'Within standard tier allowance. Auto-approves upon submission.',
-        badgeClass: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800/60',
+        label: 'Low Risk (Compliant)',
+        levelBadge: 'Tier 0 • Auto-Approved',
+        description: 'Within customer tier allowance. Automatically approves upon submission without manual delay.',
+        badgeClass: 'bg-emerald-50 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800/60',
         icon: CheckCircle2,
       };
     } else if (riskScore <= 25) {
       return {
         label: 'Medium Risk (Level 1)',
-        description: 'Exceeds category ceiling. Requires Sales Manager sign-off.',
-        badgeClass: 'bg-amber-100 text-amber-800 dark:bg-amber-950/50 dark:text-amber-400 border-amber-200 dark:border-amber-800/60',
+        levelBadge: 'Tier 1 • Sales Operations',
+        description: 'Exceeds category discount ceiling. Requires Level 1 Sales Operations sign-off.',
+        badgeClass: 'bg-amber-50 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300 border-amber-200 dark:border-amber-800/60',
         icon: AlertTriangle,
       };
     } else {
       return {
-        label: 'High Risk (Level 2)',
-        description: 'Severe margin dilution. Requires Sales Manager + Finance escalation.',
-        badgeClass: 'bg-rose-100 text-rose-800 dark:bg-rose-950/50 dark:text-rose-400 border-rose-200 dark:border-rose-800/60',
+        label: 'High Risk (Level 2 Escalation)',
+        levelBadge: 'Tier 2 • Finance Sign-off',
+        description: 'Significant margin dilution or discount breach. Requires Dual-Level sign-off: Sales Manager + Finance Controller.',
+        badgeClass: 'bg-rose-50 text-rose-800 dark:bg-rose-950/40 dark:text-rose-300 border-rose-200 dark:border-rose-800/60',
         icon: ShieldAlert,
       };
     }
@@ -390,11 +471,38 @@ export function QuotationBuilderPage() {
   const currentCustomer =
     quotation?.customer || customers.find((c) => c.id === selectedCustomerId);
 
-  // Filter products by category safely
-  const filteredProducts = products.filter((p) => {
-    if (selectedCategory === 'ALL') return true;
-    return (p.category?.name || '').toUpperCase() === selectedCategory;
-  });
+  // Hybrid Split: Calculate One-Time (CapEx) vs Recurring Monthly (OpEx)
+  const hybridSplit = useMemo(() => {
+    if (!quotation?.items) return { oneTimeGross: 0, recurringMonthlyGross: 0 };
+    let oneTime = 0;
+    let recurring = 0;
+    quotation.items.forEach((item) => {
+      const isRec = item.product?.isRecurring || item.product?.category?.name === 'SUBSCRIPTIONS';
+      const amount = Number(item.lineTotal || 0);
+      if (isRec) {
+        recurring += amount;
+      } else {
+        oneTime += amount;
+      }
+    });
+    return { oneTimeGross: oneTime, recurringMonthlyGross: recurring };
+  }, [quotation?.items]);
+
+  // Filter products by category AND search query safely
+  const filteredProducts = useMemo(() => {
+    return products.filter((p) => {
+      const catMatches =
+        selectedCategory === 'ALL' ||
+        (p.category?.name || '').toUpperCase() === selectedCategory;
+
+      const searchMatches =
+        !catalogSearch.trim() ||
+        p.name.toLowerCase().includes(catalogSearch.toLowerCase()) ||
+        p.sku.toLowerCase().includes(catalogSearch.toLowerCase());
+
+      return catMatches && searchMatches;
+    });
+  }, [products, selectedCategory, catalogSearch]);
 
   const categories = ['ALL', 'HARDWARE', 'SERVICES', 'SUBSCRIPTIONS'];
 
@@ -420,6 +528,7 @@ export function QuotationBuilderPage() {
           <button
             onClick={() => navigate('/quotations')}
             className="p-2 text-slate-500 hover:text-slate-900 dark:text-zinc-400 dark:hover:text-white rounded-lg border border-slate-200 dark:border-zinc-800 hover:bg-slate-100 dark:hover:bg-zinc-800/60 transition-colors"
+            title="Return to Quotation List"
           >
             <ArrowLeft className="w-4 h-4" />
           </button>
@@ -441,16 +550,54 @@ export function QuotationBuilderPage() {
         </div>
 
         {/* Action Controls */}
-        <div className="flex items-center gap-2.5">
-          {quotation && (
+        <div className="flex flex-wrap items-center gap-2.5">
+          {!quotation && (
             <button
-              onClick={() => setShowDeleteModal(true)}
-              disabled={actionLoading || submitting}
-              className="inline-flex items-center gap-2 px-3.5 py-2 text-sm font-medium rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 dark:bg-rose-950/40 dark:hover:bg-rose-900/60 dark:text-rose-400 transition-colors cursor-pointer"
+              onClick={handleCreateDraft}
+              disabled={actionLoading || (!selectedCustomerId && customers.length === 0)}
+              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg bg-zinc-900 hover:bg-zinc-800 text-white dark:bg-white dark:hover:bg-zinc-100 dark:text-zinc-900 shadow-sm transition-colors disabled:opacity-50 cursor-pointer"
             >
-              <Trash2 className="w-4 h-4" />
-              Delete Quotation
+              {actionLoading ? (
+                <RefreshCw className="w-4 h-4 animate-spin" />
+              ) : (
+                <Plus className="w-4 h-4" />
+              )}
+              <span>Initialize Draft Deal</span>
             </button>
+          )}
+
+          {quotation && (
+            <>
+              {/* Print / PDF Quote */}
+              <button
+                onClick={() => window.print()}
+                className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium rounded-lg border border-slate-200 dark:border-zinc-800 text-slate-700 dark:text-zinc-300 hover:bg-slate-100 dark:hover:bg-zinc-800 transition cursor-pointer"
+                title="Print official quotation proposal"
+              >
+                <Printer className="w-3.5 h-3.5" />
+                <span>Print Proposal</span>
+              </button>
+
+              {/* Copy Portal Link */}
+              <button
+                onClick={handleCopyPortalLink}
+                className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium rounded-lg border border-indigo-200 dark:border-indigo-800/60 text-indigo-700 dark:text-indigo-300 bg-indigo-50/60 dark:bg-indigo-950/40 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 transition cursor-pointer"
+                title="Copy customer negotiation portal link"
+              >
+                {copiedPortalLink ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+                <span>{copiedPortalLink ? 'Link Copied!' : 'Copy Portal Link'}</span>
+              </button>
+
+              {/* Delete Quotation */}
+              <button
+                onClick={() => setShowDeleteModal(true)}
+                disabled={actionLoading || submitting}
+                className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 dark:bg-rose-950/40 dark:hover:bg-rose-900/60 dark:text-rose-400 transition-colors cursor-pointer"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Delete</span>
+              </button>
+            </>
           )}
 
           {canAuthorize && activeApproval && (
@@ -521,17 +668,15 @@ export function QuotationBuilderPage() {
       )}
 
       {/* End-to-End Deal Journey Stepper */}
-      {quotation && (
-        <DealLifecycleStepper
-          status={quotation.status}
-          quotationNumber={quotation.quotationNumber}
-          orderNumber={quotation.orderId ? `SO-${quotation.quotationNumber.replace('QT-', '')}` : undefined}
-          createdAt={quotation.createdAt}
-          updatedAt={quotation.updatedAt}
-        />
-      )}
+      <DealLifecycleStepper
+        status={quotation ? quotation.status : 'DRAFT'}
+        quotationNumber={quotation ? quotation.quotationNumber : 'NEW DEAL'}
+        orderNumber={quotation?.orderId ? `SO-${quotation.quotationNumber.replace('QT-', '')}` : undefined}
+        createdAt={quotation?.createdAt}
+        updatedAt={quotation?.updatedAt}
+      />
 
-      {/* Customer Counter-Proposal Banner */}
+      {/* Customer Counter-Proposal Active Banner */}
       {quotation && quotation.status === 'UNDER_NEGOTIATION' && (
         <div className="p-4 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-amber-900 dark:text-amber-300 animate-in fade-in">
           <div className="flex items-start gap-2.5">
@@ -556,7 +701,7 @@ export function QuotationBuilderPage() {
                 {quotation.status === 'PENDING_MANAGER' ? 'Awaiting Level 1 Sign-off (Sales Operations)' : 'Awaiting Level 2 Escalation (Finance Controller)'}
               </p>
               <p className="text-purple-800 dark:text-purple-400 mt-0.5">
-                This deal has exceeded the standard category discount limit and requires formal authorization before order confirmation.
+                This deal has exceeded standard category discount limits and requires formal authorization before order confirmation.
               </p>
             </div>
           </div>
@@ -577,17 +722,17 @@ export function QuotationBuilderPage() {
 
       {/* Customer & Governance Context Card */}
       <div className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-xl p-4 sm:p-5 shadow-sm">
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 items-center">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-5 items-center">
           <div>
             <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-zinc-400 mb-1.5">
               Customer Account
             </label>
             {!quotation ? (
-              <div className="flex items-center gap-2">
+              <div className="space-y-1.5">
                 <select
                   value={selectedCustomerId}
                   onChange={(e) => setSelectedCustomerId(e.target.value)}
-                  className="w-full px-3 py-2 text-sm bg-slate-50 dark:bg-zinc-950/60 border border-slate-200 dark:border-zinc-800 rounded-lg text-slate-900 dark:text-zinc-100 focus:outline-none focus:ring-1 focus:ring-zinc-400"
+                  className="w-full px-3 py-2 text-sm bg-slate-50 dark:bg-zinc-950/60 border border-slate-200 dark:border-zinc-800 rounded-lg text-slate-900 dark:text-zinc-100 focus:outline-none focus:ring-1 focus:ring-zinc-400 font-medium"
                 >
                   {customers.map((c) => (
                     <option key={c.id} value={c.id}>
@@ -595,25 +740,34 @@ export function QuotationBuilderPage() {
                     </option>
                   ))}
                 </select>
-                <button
-                  onClick={handleCreateDraft}
-                  disabled={actionLoading || !selectedCustomerId}
-                  className="px-3.5 py-2 text-xs font-semibold rounded-lg bg-zinc-900 hover:bg-zinc-800 text-white dark:bg-white dark:hover:bg-zinc-100 dark:text-zinc-900 whitespace-nowrap"
-                >
-                  Start Draft
-                </button>
+                <div className="flex items-center justify-between text-[11px] text-slate-500 dark:text-zinc-400">
+                  <span>Applies customer tier discount ceiling</span>
+                  <button
+                    type="button"
+                    onClick={handleCreateDraft}
+                    disabled={actionLoading || !selectedCustomerId}
+                    className="font-semibold text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer"
+                  >
+                    Start Empty Draft →
+                  </button>
+                </div>
               </div>
             ) : (
-              <div className="flex items-center gap-2 text-slate-900 dark:text-white font-medium text-sm">
-                <Building2 className="w-4 h-4 text-slate-400 dark:text-zinc-500" />
-                <span>{currentCustomer?.companyName}</span>
+              <div className="space-y-1">
+                <div className="flex items-center gap-2 text-slate-900 dark:text-white font-medium text-sm">
+                  <Building2 className="w-4 h-4 text-slate-400 dark:text-zinc-500" />
+                  <span>{currentCustomer?.companyName}</span>
+                </div>
+                <div className="text-[11px] text-slate-500 dark:text-zinc-400">
+                  Contact: {currentCustomer?.name} • {currentCustomer?.email}
+                </div>
               </div>
             )}
           </div>
 
           <div>
             <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-zinc-400 mb-1.5">
-              Customer Tier Allowance
+              Customer Tier Governance
             </label>
             <div className="flex items-center gap-2">
               <span className="px-2.5 py-1 text-xs font-semibold rounded-md bg-zinc-100 dark:bg-zinc-800 text-slate-800 dark:text-zinc-200">
@@ -623,15 +777,28 @@ export function QuotationBuilderPage() {
                 Baseline Ceiling: {currentCustomer?.customerTier?.defaultDiscount || 15}%
               </span>
             </div>
+            <div className="text-[11px] text-slate-400 dark:text-zinc-500 mt-1">
+              Commercial Policy Governance Rule (Zero Spend Automation)
+            </div>
           </div>
 
           <div>
             <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-zinc-400 mb-1.5">
-              Category Policies
+              Category Policy Ceilings
             </label>
             <div className="text-xs text-slate-500 dark:text-zinc-400 space-y-0.5">
-              <div>Hardware: Max 15% discount (Min 20% margin)</div>
-              <div>Services: Max 10% discount (Min 35% margin)</div>
+              <div className="flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-blue-500"></span>
+                <span>Hardware: Max 15% discount (Min 20% margin)</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+                <span>Services: Max 10% discount (Min 35% margin)</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-purple-500"></span>
+                <span>Subscriptions: Max 5% discount (Recurring MRR)</span>
+              </div>
             </div>
           </div>
         </div>
@@ -663,7 +830,7 @@ export function QuotationBuilderPage() {
                 <FileCheck className="w-8 h-8 mx-auto text-slate-300 dark:text-zinc-600" />
                 <p className="text-sm font-medium text-slate-600 dark:text-zinc-400">Your quotation cart is empty.</p>
                 <p className="text-xs text-slate-400 dark:text-zinc-500 max-w-sm mx-auto">
-                  Click "+ Add to Quote" on any product below to begin constructing this deal.
+                  Click "+ Add to Quote" on any product from the catalog below to begin constructing this deal.
                 </p>
               </div>
             ) : (
@@ -671,13 +838,13 @@ export function QuotationBuilderPage() {
                 <table className="w-full text-left text-xs">
                   <thead className="bg-slate-50 dark:bg-zinc-950/40 text-slate-500 dark:text-zinc-400 uppercase font-semibold">
                     <tr>
-                      <th className="py-3 px-4">Product</th>
-                      <th className="py-3 px-3">Unit Price</th>
-                      <th className="py-3 px-3">Quantity</th>
-                      <th className="py-3 px-3">Discount %</th>
-                      <th className="py-3 px-3">Line Total</th>
-                      <th className="py-3 px-3">Margin</th>
-                      {isEditable && <th className="py-3 px-3 text-right">Action</th>}
+                      <th className="py-2.5 px-3">Product & Category</th>
+                      <th className="py-2.5 px-2.5">Unit Price</th>
+                      <th className="py-2.5 px-2.5">Quantity</th>
+                      <th className="py-2.5 px-2.5">Discount %</th>
+                      <th className="py-2.5 px-2.5">Line Total</th>
+                      <th className="py-2.5 px-2.5">Margin</th>
+                      {isEditable && <th className="py-2.5 px-2.5 text-right">Action</th>}
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-zinc-800/60 text-slate-800 dark:text-zinc-200">
@@ -689,44 +856,67 @@ export function QuotationBuilderPage() {
                         discountPercentage: item.discountPercentage,
                       };
 
+                      const categoryName = item.product?.category?.name || 'HARDWARE';
+                      const isRecurring = item.product?.isRecurring || categoryName === 'SUBSCRIPTIONS';
+
                       return (
                         <tr key={item.id} className="hover:bg-slate-50/60 dark:hover:bg-zinc-800/30 transition-colors">
-                          <td className="py-3.5 px-4 font-medium text-slate-900 dark:text-white">
-                            <div className="flex items-center gap-3">
+                          <td className="py-3 px-3 font-medium text-slate-900 dark:text-white">
+                            <div className="flex items-center gap-2.5">
                               {item.product?.imageUrl ? (
                                 <img
                                   src={item.product.imageUrl}
                                   alt={item.product.name}
-                                  className="w-10 h-10 rounded-lg object-cover border border-slate-200 dark:border-zinc-700 shrink-0"
+                                  className="w-9 h-9 rounded-lg object-cover border border-slate-200 dark:border-zinc-700 shrink-0"
                                 />
                               ) : (
-                                <div className="w-10 h-10 rounded-lg bg-slate-100 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 flex items-center justify-center text-slate-400 shrink-0">
+                                <div className="w-9 h-9 rounded-lg bg-slate-100 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 flex items-center justify-center text-slate-400 shrink-0">
                                   <Layers className="w-4 h-4" />
                                 </div>
                               )}
-                              <div>
-                                <div>{item.product?.name}</div>
-                                <div className="text-[11px] text-slate-500 dark:text-zinc-400 font-normal">
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <span className="truncate">{item.product?.name}</span>
+                                  {/* Category Badge */}
+                                  <span
+                                    className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${
+                                      categoryName === 'HARDWARE'
+                                        ? 'bg-blue-50 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300'
+                                        : categoryName === 'SERVICES'
+                                        ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300'
+                                        : 'bg-purple-50 text-purple-700 dark:bg-purple-950/50 dark:text-purple-300'
+                                    }`}
+                                  >
+                                    {categoryName}
+                                  </span>
+                                </div>
+                                <div className="text-[11px] text-slate-500 dark:text-zinc-400 font-normal mt-0.5">
                                   SKU: {item.product?.sku}
-                                  {item.product?.isRecurring && (
-                                    <span className="ml-2 text-indigo-600 dark:text-indigo-400 font-medium">
-                                      Recurring / Monthly
+                                  {isRecurring ? (
+                                    <span className="ml-1.5 text-indigo-600 dark:text-indigo-400 font-semibold">
+                                      • Monthly SaaS
+                                    </span>
+                                  ) : (
+                                    <span className="ml-1.5 text-slate-400 font-normal">
+                                      • One-Time
                                     </span>
                                   )}
                                 </div>
                                 {hasExcess && (
                                   <div className="mt-1 inline-flex items-center gap-1 text-[11px] font-semibold text-rose-600 dark:text-rose-400">
                                     <AlertTriangle className="w-3 h-3" />
-                                    <span>{Number(item.discountExcess || 0).toFixed(1)}% above category ceiling</span>
+                                    <span>
+                                      {Number(item.discountExcess || 0).toFixed(1)}% above limit ({item.discountLimit || 0}%)
+                                    </span>
                                   </div>
                                 )}
                               </div>
                             </div>
                           </td>
-                          <td className="py-3.5 px-3 whitespace-nowrap font-mono">
+                          <td className="py-3 px-2.5 whitespace-nowrap font-mono text-[11px]">
                             ₹{Number(item.unitPrice).toLocaleString('en-IN')}
                           </td>
-                          <td className="py-3.5 px-3 whitespace-nowrap">
+                          <td className="py-3 px-2.5 whitespace-nowrap">
                             {isEditable ? (
                               <div className="flex items-center gap-1">
                                 <button
@@ -739,7 +929,7 @@ export function QuotationBuilderPage() {
                                     handleUpdateItem(item.id, next, Number(draft.discountPercentage));
                                   }}
                                   disabled={Number(draft.quantity) <= 1 || actionLoading}
-                                  className="w-6 h-6 flex items-center justify-center rounded border border-slate-200 dark:border-zinc-700 hover:bg-slate-100 dark:hover:bg-zinc-800 text-xs"
+                                  className="w-5 h-5 flex items-center justify-center rounded border border-slate-200 dark:border-zinc-700 hover:bg-slate-100 dark:hover:bg-zinc-800 text-xs cursor-pointer"
                                 >
                                   -
                                 </button>
@@ -761,7 +951,7 @@ export function QuotationBuilderPage() {
                                   onKeyDown={(e) => {
                                     if (e.key === 'Enter') e.currentTarget.blur();
                                   }}
-                                  className="w-12 text-center py-0.5 text-xs font-mono bg-slate-50 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-700 rounded text-slate-900 dark:text-zinc-100"
+                                  className="w-10 text-center py-0.5 text-xs font-mono bg-slate-50 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-700 rounded text-slate-900 dark:text-zinc-100"
                                 />
                                 <button
                                   onClick={() => {
@@ -773,7 +963,7 @@ export function QuotationBuilderPage() {
                                     handleUpdateItem(item.id, next, Number(draft.discountPercentage));
                                   }}
                                   disabled={actionLoading}
-                                  className="w-6 h-6 flex items-center justify-center rounded border border-slate-200 dark:border-zinc-700 hover:bg-slate-100 dark:hover:bg-zinc-800 text-xs"
+                                  className="w-5 h-5 flex items-center justify-center rounded border border-slate-200 dark:border-zinc-700 hover:bg-slate-100 dark:hover:bg-zinc-800 text-xs cursor-pointer"
                                 >
                                   +
                                 </button>
@@ -782,7 +972,7 @@ export function QuotationBuilderPage() {
                               <span className="font-mono">{item.quantity}</span>
                             )}
                           </td>
-                          <td className="py-3.5 px-3 whitespace-nowrap">
+                          <td className="py-3 px-2.5 whitespace-nowrap">
                             {isEditable ? (
                               <div className="flex items-center gap-1">
                                 <input
@@ -804,22 +994,22 @@ export function QuotationBuilderPage() {
                                   onKeyDown={(e) => {
                                     if (e.key === 'Enter') e.currentTarget.blur();
                                   }}
-                                  className={`w-16 px-2 py-1 text-xs font-mono bg-slate-50 dark:bg-zinc-950 border rounded text-slate-900 dark:text-zinc-100 ${
+                                  className={`w-14 px-1.5 py-0.5 text-xs font-mono bg-slate-50 dark:bg-zinc-950 border rounded text-slate-900 dark:text-zinc-100 ${
                                     hasExcess
                                       ? 'border-rose-400 dark:border-rose-600 focus:ring-rose-500'
                                       : 'border-slate-200 dark:border-zinc-700'
                                   }`}
                                 />
-                                <span className="text-slate-400">%</span>
+                                <span className="text-slate-400 text-[11px]">%</span>
                               </div>
                             ) : (
                               <span>{item.discountPercentage}%</span>
                             )}
                           </td>
-                          <td className="py-3.5 px-3 font-semibold text-slate-900 dark:text-white whitespace-nowrap font-mono">
+                          <td className="py-3 px-2.5 font-semibold text-slate-900 dark:text-white whitespace-nowrap font-mono text-[11px]">
                             ₹{Number(item.lineTotal).toLocaleString('en-IN')}
                           </td>
-                          <td className="py-3.5 px-3 whitespace-nowrap font-mono">
+                          <td className="py-3 px-2.5 whitespace-nowrap font-mono text-[11px]">
                             <span
                               className={`font-semibold ${
                                 itemMargin >= 30
@@ -833,11 +1023,11 @@ export function QuotationBuilderPage() {
                             </span>
                           </td>
                           {isEditable && (
-                            <td className="py-3.5 px-3 text-right whitespace-nowrap">
+                            <td className="py-3 px-2.5 text-right whitespace-nowrap">
                               <button
                                 onClick={() => handleRemoveItem(item.id)}
                                 disabled={actionLoading}
-                                className="p-1 text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 transition-colors"
+                                className="p-1 text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 transition-colors cursor-pointer"
                                 title="Remove line item"
                               >
                                 <Trash2 className="w-4 h-4" />
@@ -857,16 +1047,23 @@ export function QuotationBuilderPage() {
           {isEditable && (
             <div className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-xl p-5 shadow-sm space-y-4">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                <h3 className="text-sm font-semibold text-slate-900 dark:text-white">
-                  Add Products from Catalog
-                </h3>
-                {/* Category tabs */}
-                <div className="flex items-center gap-1.5 overflow-x-auto">
+                <div className="flex items-center gap-2">
+                  <Cpu className="w-4 h-4 text-slate-400" />
+                  <h3 className="text-sm font-semibold text-slate-900 dark:text-white">
+                    Add Products from Catalog
+                  </h3>
+                  <span className="text-xs text-slate-400 font-normal">
+                    ({filteredProducts.length} available)
+                  </span>
+                </div>
+
+                {/* Category filter pills - flex-wrap to avoid truncation */}
+                <div className="flex flex-wrap items-center gap-1.5">
                   {categories.map((cat) => (
                     <button
                       key={cat}
                       onClick={() => setSelectedCategory(cat)}
-                      className={`px-3 py-1 text-xs font-medium rounded-lg transition-colors ${
+                      className={`px-3 py-1 text-xs font-medium rounded-lg transition-colors cursor-pointer shrink-0 ${
                         selectedCategory === cat
                           ? 'bg-zinc-900 text-white dark:bg-white dark:text-zinc-900'
                           : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-700'
@@ -878,48 +1075,95 @@ export function QuotationBuilderPage() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {filteredProducts.map((prod) => (
-                  <div
-                    key={prod.id}
-                    className="border border-slate-200 dark:border-zinc-800 hover:border-slate-300 dark:hover:border-zinc-700 rounded-lg p-3.5 flex items-center justify-between gap-3 transition-all group"
+              {/* Instant Search in Catalog */}
+              <div className="relative">
+                <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-zinc-500" />
+                <input
+                  type="text"
+                  placeholder="Filter catalog products by name or SKU (e.g. MacBook, Setup, Cloud)..."
+                  value={catalogSearch}
+                  onChange={(e) => setCatalogSearch(e.target.value)}
+                  className="w-full pl-9 pr-8 py-2 text-xs bg-slate-50 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-lg text-slate-900 dark:text-zinc-100 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-slate-400"
+                />
+                {catalogSearch && (
+                  <button
+                    onClick={() => setCatalogSearch('')}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-slate-400 hover:text-slate-700 dark:hover:text-white p-1"
                   >
-                    <div className="flex items-center gap-3 min-w-0">
-                      {prod.imageUrl ? (
-                        <img
-                          src={prod.imageUrl}
-                          alt={prod.name}
-                          className="w-12 h-12 rounded-lg object-cover border border-slate-200 dark:border-zinc-700 shrink-0"
-                        />
-                      ) : (
-                        <div className="w-12 h-12 rounded-lg bg-slate-100 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 flex items-center justify-center text-slate-400 shrink-0">
-                          <Layers className="w-5 h-5" />
-                        </div>
-                      )}
-                      <div className="min-w-0">
-                        <div className="text-xs font-semibold text-slate-900 dark:text-white truncate">
-                          {prod.name}
-                        </div>
-                        <div className="text-[11px] text-slate-500 dark:text-zinc-400 mt-0.5 font-mono">
-                          SKU: {prod.sku} • ₹{Number(prod.basePrice).toLocaleString('en-IN')} / {prod.unit}
-                        </div>
-                        {prod.isRecurring && (
-                          <span className="inline-block mt-1 text-[10px] font-semibold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/40 px-1.5 py-0.5 rounded">
-                            Recurring Subscription
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                    <button
-                      onClick={() => handleAddProduct(prod)}
-                      disabled={actionLoading}
-                      className="p-2 text-slate-700 dark:text-zinc-300 hover:text-slate-900 dark:hover:text-white bg-slate-100 hover:bg-slate-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 rounded-lg transition-colors flex-shrink-0 cursor-pointer"
-                      title="Add to quotation"
-                    >
-                      <Plus className="w-4 h-4" />
-                    </button>
+                    ✕
+                  </button>
+                )}
+              </div>
+
+              {/* Product Grid */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-96 overflow-y-auto pr-1">
+                {filteredProducts.length === 0 ? (
+                  <div className="col-span-2 p-8 text-center text-slate-400 text-xs">
+                    No products found matching "{catalogSearch}".
                   </div>
-                ))}
+                ) : (
+                  filteredProducts.map((prod) => {
+                    const cat = prod.category?.name || 'HARDWARE';
+                    return (
+                      <div
+                        key={prod.id}
+                        className="border border-slate-200 dark:border-zinc-800 hover:border-slate-300 dark:hover:border-zinc-700 rounded-lg p-3.5 flex items-center justify-between gap-3 transition-all group bg-slate-50/40 dark:bg-zinc-950/30"
+                      >
+                        <div className="flex items-center gap-3 min-w-0">
+                          {prod.imageUrl ? (
+                            <img
+                              src={prod.imageUrl}
+                              alt={prod.name}
+                              className="w-11 h-11 rounded-lg object-cover border border-slate-200 dark:border-zinc-700 shrink-0"
+                            />
+                          ) : (
+                            <div className="w-11 h-11 rounded-lg bg-slate-100 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 flex items-center justify-center text-slate-400 shrink-0">
+                              <Layers className="w-5 h-5" />
+                            </div>
+                          )}
+                          <div className="min-w-0">
+                            <div className="text-xs font-semibold text-slate-900 dark:text-white truncate">
+                              {prod.name}
+                            </div>
+                            <div className="text-[11px] text-slate-500 dark:text-zinc-400 mt-0.5 font-mono">
+                              SKU: {prod.sku} • ₹{Number(prod.basePrice).toLocaleString('en-IN')}
+                            </div>
+                            <div className="flex items-center gap-1.5 mt-1">
+                              <span
+                                className={`text-[10px] font-semibold px-1.5 py-0.2 rounded ${
+                                  cat === 'HARDWARE'
+                                    ? 'bg-blue-50 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300'
+                                    : cat === 'SERVICES'
+                                    ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300'
+                                    : 'bg-purple-50 text-purple-700 dark:bg-purple-950/50 dark:text-purple-300'
+                                }`}
+                              >
+                                {cat}
+                              </span>
+                              {prod.isRecurring && (
+                                <span className="text-[10px] font-semibold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/40 px-1.5 py-0.2 rounded">
+                                  Monthly SaaS
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => handleAddProduct(prod)}
+                          disabled={actionLoading}
+                          className="p-2 text-slate-700 dark:text-zinc-300 hover:text-slate-900 dark:hover:text-white bg-white hover:bg-slate-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 border border-slate-200 dark:border-zinc-700 rounded-lg transition-colors flex-shrink-0 cursor-pointer"
+                          title="Add to quotation"
+                        >
+                          {addingProductId === prod.id ? (
+                            <RefreshCw className="w-4 h-4 animate-spin text-indigo-600" />
+                          ) : (
+                            <Plus className="w-4 h-4" />
+                          )}
+                        </button>
+                      </div>
+                    );
+                  })
+                )}
               </div>
             </div>
           )}
@@ -943,38 +1187,44 @@ export function QuotationBuilderPage() {
               <div className="space-y-3 max-h-56 overflow-y-auto pr-1">
                 {comments.length === 0 ? (
                   <p className="text-xs text-slate-400 dark:text-zinc-500 py-3 text-center">
-                    No negotiation notes yet. Messages posted here are visible in the Customer Portal.
+                    No negotiation notes yet. Messages posted here synchronize with the Customer Portal.
                   </p>
                 ) : (
                   comments.map((c: any) => {
-                    const isClient = c.authorRole === 'CUSTOMER' || !c.authorRole;
+                    const isClient = c.authorType === 'CUSTOMER' || c.authorRole === 'CUSTOMER';
+                    const isManager = c.authorType === 'MANAGER' || c.authorRole === 'SALES_MANAGER';
+                    const roleBadgeLabel = isClient ? 'Client' : isManager ? 'Manager' : 'Sales Rep';
+                    const authorLabel =
+                      c.authorName ||
+                      (isClient ? (currentCustomer?.companyName || 'Client Customer') : (currentUser?.username || 'Sales Rep'));
+
                     return (
                       <div
                         key={c.id}
                         className={`p-3 rounded-xl text-xs space-y-1 ${
                           isClient
-                            ? 'bg-amber-50/70 dark:bg-amber-950/30 border border-amber-200/60 dark:border-amber-900/40 text-slate-800 dark:text-zinc-200 ml-4'
-                            : 'bg-slate-50 dark:bg-zinc-950/50 border border-slate-200/60 dark:border-zinc-800/60 text-slate-800 dark:text-zinc-200 mr-4'
+                            ? 'bg-amber-50/70 dark:bg-amber-950/30 border border-amber-200/60 dark:border-amber-900/40 text-slate-800 dark:text-zinc-200 mr-8'
+                            : 'bg-indigo-50/60 dark:bg-indigo-950/30 border border-indigo-200/60 dark:border-indigo-900/40 text-slate-800 dark:text-zinc-200 ml-8'
                         }`}
                       >
                         <div className="flex items-center justify-between text-[11px]">
                           <span className="font-semibold flex items-center gap-1.5">
                             <span
-                              className={`px-1.5 py-0.2 rounded text-[10px] font-bold ${
+                              className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
                                 isClient
                                   ? 'bg-amber-200 text-amber-900 dark:bg-amber-900/60 dark:text-amber-200'
-                                  : 'bg-slate-200 text-slate-800 dark:bg-zinc-800 dark:text-zinc-200'
+                                  : 'bg-indigo-200 text-indigo-900 dark:bg-indigo-900/60 dark:text-indigo-200'
                               }`}
                             >
-                              {isClient ? 'Client' : 'Internal Rep'}
+                              {roleBadgeLabel}
                             </span>
-                            <span>{c.authorName || (isClient ? 'Customer' : 'Sales Team')}</span>
+                            <span className="text-slate-900 dark:text-white font-medium">{authorLabel}</span>
                           </span>
                           <span className="text-slate-400 dark:text-zinc-500">
                             {new Date(c.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                           </span>
                         </div>
-                        <p className="text-xs leading-relaxed">{c.comment || c.message}</p>
+                        <p className="text-xs leading-relaxed">{c.comment || c.message || c.text}</p>
                       </div>
                     );
                   })
@@ -1013,13 +1263,13 @@ export function QuotationBuilderPage() {
 
             <div className="space-y-2.5 text-xs">
               <div className="flex justify-between text-slate-500 dark:text-zinc-400">
-                <span>Subtotal</span>
+                <span>Gross Subtotal</span>
                 <span className="font-mono">
                   ₹{Number(quotation?.subtotal || 0).toLocaleString('en-IN')}
                 </span>
               </div>
               <div className="flex justify-between text-slate-500 dark:text-zinc-400">
-                <span>Total Discount</span>
+                <span>Total Discount Applied</span>
                 <span className="font-mono text-rose-600 dark:text-rose-400">
                   -₹{Number(quotation?.discountAmount || 0).toLocaleString('en-IN')}
                 </span>
@@ -1034,6 +1284,25 @@ export function QuotationBuilderPage() {
                 <span>Total Deal Value</span>
                 <span className="font-mono">
                   ₹{Number(quotation?.totalAmount || 0).toLocaleString('en-IN')}
+                </span>
+              </div>
+            </div>
+
+            {/* Hybrid Ledger Split (Hardware CapEx vs Recurring OpEx) */}
+            <div className="p-3 rounded-lg bg-slate-50 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800/80 space-y-1.5 text-[11px]">
+              <div className="font-semibold text-slate-700 dark:text-zinc-300">
+                Hybrid Deal Structure:
+              </div>
+              <div className="flex justify-between text-slate-600 dark:text-zinc-400">
+                <span>• One-Time CapEx (Hardware & Services):</span>
+                <span className="font-mono font-medium text-slate-900 dark:text-white">
+                  ₹{hybridSplit.oneTimeGross.toLocaleString('en-IN')}
+                </span>
+              </div>
+              <div className="flex justify-between text-indigo-600 dark:text-indigo-400">
+                <span>• Recurring OpEx (Monthly SaaS):</span>
+                <span className="font-mono font-semibold">
+                  ₹{hybridSplit.recurringMonthlyGross.toLocaleString('en-IN')} / mo
                 </span>
               </div>
             </div>
@@ -1065,7 +1334,7 @@ export function QuotationBuilderPage() {
             </div>
 
             {/* Blended Discount Risk Score (BRS) Badge */}
-            <div className={`p-4 rounded-xl border ${riskDetails.badgeClass} space-y-2`}>
+            <div className={`p-4 rounded-xl border ${riskDetails.badgeClass} space-y-2.5`}>
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-1.5 font-semibold text-xs">
                   <RiskIcon className="w-4 h-4" />
@@ -1078,6 +1347,18 @@ export function QuotationBuilderPage() {
               <p className="text-[11px] opacity-90 leading-relaxed">
                 {riskDetails.description}
               </p>
+
+              {/* Explain Risk Formulation Button */}
+              {quotation && quotation.items.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setShowRiskBreakdown(true)}
+                  className="inline-flex items-center gap-1 text-[11px] font-semibold underline hover:opacity-80 transition cursor-pointer pt-1"
+                >
+                  <Info className="w-3.5 h-3.5" />
+                  <span>Inspect Risk Formulation Breakdown</span>
+                </button>
+              )}
             </div>
           </div>
 
@@ -1096,7 +1377,7 @@ export function QuotationBuilderPage() {
             </div>
 
             <p className="text-xs text-slate-500 dark:text-zinc-400">
-              Co-purchase algorithms identified high-margin products that pair strategically with this cart.
+              Co-purchase algorithms identified high-margin companion products tailored for this deal.
             </p>
 
             {recommendations.length === 0 ? (
@@ -1116,7 +1397,7 @@ export function QuotationBuilderPage() {
                           {rec.name}
                         </div>
                         <div className="text-[11px] text-slate-500 dark:text-zinc-400 mt-0.5 font-mono">
-                          ₹{Number(rec.price).toLocaleString('en-IN')} • {rec.type.replace('_', ' ')}
+                          ₹{Number(rec.price).toLocaleString('en-IN')} • {rec.type.replace(/_/g, ' ')}
                         </div>
                       </div>
                       <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-emerald-100 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-400 whitespace-nowrap font-mono">
@@ -1128,10 +1409,14 @@ export function QuotationBuilderPage() {
                       <button
                         onClick={() => handleAddRecommendation(rec)}
                         disabled={actionLoading}
-                        className="w-full mt-2 py-1.5 text-xs font-medium rounded-md bg-zinc-900 hover:bg-zinc-800 text-white dark:bg-white dark:hover:bg-zinc-100 dark:text-zinc-900 transition-colors flex items-center justify-center gap-1.5"
+                        className="w-full mt-2 py-1.5 text-xs font-medium rounded-md bg-zinc-900 hover:bg-zinc-800 text-white dark:bg-white dark:hover:bg-zinc-100 dark:text-zinc-900 transition-colors flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
                       >
-                        <Plus className="w-3.5 h-3.5" />
-                        Add to Quote
+                        {addingRecId === rec.id ? (
+                          <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                        ) : (
+                          <Plus className="w-3.5 h-3.5" />
+                        )}
+                        <span>Add to Quote</span>
                       </button>
                     )}
                   </div>
@@ -1168,14 +1453,14 @@ export function QuotationBuilderPage() {
               <button
                 onClick={() => setShowDeleteModal(false)}
                 disabled={deleting}
-                className="px-4 py-2 text-sm font-medium rounded-lg text-slate-700 dark:text-zinc-300 hover:bg-slate-100 dark:hover:bg-zinc-800 transition-colors"
+                className="px-4 py-2 text-sm font-medium rounded-lg text-slate-700 dark:text-zinc-300 hover:bg-slate-100 dark:hover:bg-zinc-800 transition-colors cursor-pointer"
               >
                 Cancel
               </button>
               <button
                 onClick={confirmDeleteQuotation}
                 disabled={deleting}
-                className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg bg-rose-600 hover:bg-rose-700 text-white shadow-sm transition-colors disabled:opacity-50"
+                className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg bg-rose-600 hover:bg-rose-700 text-white shadow-sm transition-colors disabled:opacity-50 cursor-pointer"
               >
                 {deleting ? (
                   <>
@@ -1188,6 +1473,108 @@ export function QuotationBuilderPage() {
                     Delete Permanently
                   </>
                 )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Blended Risk Score Formulation Breakdown Modal */}
+      {showRiskBreakdown && quotation && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-2xl max-w-2xl w-full p-6 shadow-2xl space-y-5">
+            <div className="flex items-center justify-between border-b border-slate-100 dark:border-zinc-800 pb-3">
+              <div>
+                <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                  <ShieldCheck className="w-5 h-5 text-indigo-500" />
+                  <span>Blended Risk Score (BRS) Governance Breakdown</span>
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-zinc-400 font-mono mt-0.5">
+                  Deal: {quotation.quotationNumber} • Account: {currentCustomer?.companyName}
+                </p>
+              </div>
+              <span className={`px-2.5 py-1 rounded-full text-xs font-bold border ${riskDetails.badgeClass}`}>
+                BRS: {Number(riskScore).toFixed(1)}%
+              </span>
+            </div>
+
+            {/* Governance Formula Box */}
+            <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 text-xs space-y-1.5">
+              <div className="font-semibold text-slate-800 dark:text-zinc-200">
+                BRS Governance Formulation:
+              </div>
+              <div className="font-mono text-[11px] text-slate-600 dark:text-zinc-400 bg-white dark:bg-zinc-900 p-2 rounded border border-slate-200 dark:border-zinc-800">
+                Risk Score = ∑ [ Discount Excess × Financial Weight × Margin Sensitivity × 2.5 ]
+              </div>
+              <p className="text-[11px] text-slate-500 dark:text-zinc-400">
+                Excess is measured against category ceilings. Sensitive margins (&lt;20%) incur an additional 1.5x penalty to prevent margin leakage.
+              </p>
+            </div>
+
+            {/* Line items contribution table */}
+            <div className="overflow-x-auto max-h-60 border border-slate-200 dark:border-zinc-800 rounded-xl">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-slate-50 dark:bg-zinc-950 text-slate-500 dark:text-zinc-400 uppercase font-semibold">
+                  <tr>
+                    <th className="py-2.5 px-3">Product</th>
+                    <th className="py-2.5 px-3">Category</th>
+                    <th className="py-2.5 px-3">Applied vs Limit</th>
+                    <th className="py-2.5 px-3">Excess</th>
+                    <th className="py-2.5 px-3">Margin</th>
+                    <th className="py-2.5 px-3 text-right">Risk Added</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-zinc-800 text-slate-800 dark:text-zinc-200">
+                  {quotation.items.map((it) => {
+                    const excess = Number(it.discountExcess || 0);
+                    const risk = Number(it.riskContribution || 0);
+                    return (
+                      <tr key={it.id} className="hover:bg-slate-50/50 dark:hover:bg-zinc-800/30">
+                        <td className="py-2.5 px-3 font-medium text-slate-900 dark:text-white">
+                          {it.product?.name}
+                        </td>
+                        <td className="py-2.5 px-3">
+                          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-slate-100 dark:bg-zinc-800">
+                            {it.product?.category?.name || 'HARDWARE'}
+                          </span>
+                        </td>
+                        <td className="py-2.5 px-3 font-mono">
+                          {it.discountPercentage}% (Limit {it.discountLimit || 0}%)
+                        </td>
+                        <td className="py-2.5 px-3 font-mono font-semibold">
+                          {excess > 0 ? (
+                            <span className="text-rose-600 dark:text-rose-400">+{excess.toFixed(1)}%</span>
+                          ) : (
+                            <span className="text-emerald-600 dark:text-emerald-400">0.0%</span>
+                          )}
+                        </td>
+                        <td className="py-2.5 px-3 font-mono">
+                          {Number(it.marginPercentage || 0).toFixed(1)}%
+                        </td>
+                        <td className="py-2.5 px-3 text-right font-mono font-bold">
+                          {risk > 0 ? (
+                            <span className="text-rose-600 dark:text-rose-400">+{risk.toFixed(2)} pts</span>
+                          ) : (
+                            <span className="text-slate-400">0.00 pts</span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="flex items-center justify-between pt-2 border-t border-slate-100 dark:border-zinc-800">
+              <span className="text-xs text-slate-500 dark:text-zinc-400">
+                Approval Level Triggered: <strong>{quotation.approvalLevel === 0 ? 'Tier 0 (Auto-Approved)' : quotation.approvalLevel === 1 ? 'Tier 1 (Sales Manager)' : 'Tier 2 (Finance Controller)'}</strong>
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowRiskBreakdown(false)}
+                className="px-4 py-2 text-xs font-semibold rounded-xl bg-slate-900 text-white hover:bg-black dark:bg-white dark:text-black dark:hover:bg-zinc-200 transition cursor-pointer"
+              >
+                Close Inspector
               </button>
             </div>
           </div>
@@ -1290,4 +1677,3 @@ export function QuotationBuilderPage() {
     </div>
   );
 }
-

@@ -300,4 +300,45 @@ export class NegotiationService {
       billing: billingResult,
     };
   }
+
+  /**
+   * Customer portal: decline a quotation proposal
+   */
+  static async declineQuotation(quotationId: string, customerId: string, reason?: string) {
+    const quote = await prisma.quotation.findUnique({
+      where: { id: quotationId },
+      select: { id: true, customerId: true, status: true, salesRepId: true },
+    });
+
+    if (!quote) throw new Error('Quotation not found.');
+    if (quote.customerId !== customerId) {
+      throw new Error('Unauthorized to decline this quotation.');
+    }
+
+    return await prisma.$transaction(async (tx) => {
+      const updated = await tx.quotation.update({
+        where: { id: quotationId },
+        data: {
+          status: QuotationStatus.REJECTED,
+          customerStatus: CustomerStatus.DECLINED,
+          lastActivityAt: new Date(),
+        },
+      });
+
+      await tx.auditLog.create({
+        data: {
+          entityType: 'QUOTATION',
+          entityId: quote.id,
+          action: 'REJECTED',
+          performedBy: quote.salesRepId || customerId,
+          oldValue: { status: quote.status },
+          newValue: { status: QuotationStatus.REJECTED, customerStatus: CustomerStatus.DECLINED },
+          reason: reason || 'Declined by customer in portal',
+        },
+      });
+
+      return updated;
+    }, TX_OPTIONS);
+  }
 }
+

@@ -80,7 +80,68 @@ export class CommentService {
       },
     });
 
-    return comments;
+    // Enrich comments with author metadata
+    const userIds = [
+      ...new Set(
+        comments
+          .filter((c) => c.authorType === 'REP' || c.authorType === 'MANAGER')
+          .map((c) => c.authorId)
+      ),
+    ];
+    const customerIds = [
+      ...new Set(
+        comments
+          .filter((c) => c.authorType === 'CUSTOMER')
+          .map((c) => c.authorId)
+      ),
+    ];
+
+    const [users, customers] = await Promise.all([
+      userIds.length > 0
+        ? prisma.user.findMany({
+            where: { id: { in: userIds } },
+            select: { id: true, username: true, role: true },
+          })
+        : [],
+      customerIds.length > 0
+        ? prisma.customer.findMany({
+            where: { id: { in: customerIds } },
+            select: { id: true, name: true, companyName: true },
+          })
+        : [],
+    ]);
+
+    const userMap = new Map(users.map((u) => [u.id, u]));
+    const customerMap = new Map(customers.map((c) => [c.id, c]));
+
+    return comments.map((c) => {
+      let authorName = 'Sales Representative';
+      let authorRole = c.authorType;
+
+      if (c.authorType === 'CUSTOMER') {
+        const cust = customerMap.get(c.authorId);
+        authorName = cust ? `${cust.companyName} (${cust.name})` : 'Client (Customer)';
+        authorRole = 'CUSTOMER';
+      } else {
+        const usr = userMap.get(c.authorId);
+        if (usr) {
+          authorName = usr.username;
+          authorRole = usr.role;
+        } else if (c.authorType === 'MANAGER') {
+          authorName = 'Sales Operations';
+          authorRole = 'SALES_MANAGER';
+        } else {
+          authorName = 'Sales Representative';
+          authorRole = 'SALES_REP';
+        }
+      }
+
+      return {
+        ...c,
+        authorName,
+        authorRole,
+      };
+    });
   }
 
   /**

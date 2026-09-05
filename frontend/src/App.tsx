@@ -20,11 +20,14 @@ import { QuotationListPage } from './pages/quotations/QuotationListPage';
 import { QuotationBuilderPage } from './pages/quotations/QuotationBuilderPage';
 import { ApprovalQueuePage } from './pages/approvals/ApprovalQueuePage';
 import { FulfillmentPage } from './pages/fulfillment/FulfillmentPage';
+import { OrdersPage } from './pages/orders/OrdersPage';
 import { BillingPage } from './pages/billing/BillingPage';
 import { DealHealthPage } from './pages/intelligence/DealHealthPage';
 import { CustomerListPage } from './pages/customers/CustomerListPage';
 import { ReportsAnalyticsPage } from './pages/reports/ReportsAnalyticsPage';
 import { AdminConfigPage } from './pages/admin/AdminConfigPage';
+import { AdminSettingsPage } from './pages/settings/AdminSettingsPage';
+import { UserProfilePage } from './pages/profile/UserProfilePage';
 
 import { ThemeProvider } from './context/ThemeContext';
 
@@ -47,6 +50,7 @@ function AppRoutes() {
       <Routes>
         {/* ── CUSTOMER PORTAL ── */}
         <Route path="/login" element={<PortalLoginPage />} />
+        <Route path="/portal/login" element={<PortalLoginPage />} />
         <Route
           path="/portal"
           element={
@@ -79,11 +83,13 @@ function AppRoutes() {
           <Route path="approvals" element={<ApprovalQueuePage />} />
           <Route path="fulfillment" element={<FulfillmentPage />} />
           <Route path="billing" element={<BillingPage />} />
-          <Route path="orders" element={<FulfillmentPage />} />
+          <Route path="orders" element={<OrdersPage />} />
           <Route path="deal-health" element={<DealHealthPage />} />
           <Route path="reports" element={<ReportsAnalyticsPage />} />
           <Route path="customers" element={<CustomerListPage />} />
           <Route path="admin" element={<AdminConfigPage />} />
+          <Route path="settings" element={<AdminSettingsPage />} />
+          <Route path="profile" element={<UserProfilePage />} />
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Route>
 

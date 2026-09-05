@@ -43,6 +43,7 @@ export function FinanceDashboard() {
   const [paymentMethod, setPaymentMethod] = useState('BANK_TRANSFER');
   const [transactionRef, setTransactionRef] = useState('');
   const [submittingPayment, setSubmittingPayment] = useState(false);
+  const [paymentError, setPaymentError] = useState<string | null>(null);
 
   const fetchDashboardData = async () => {
     try {
@@ -100,6 +101,7 @@ export function FinanceDashboard() {
     if (!paymentInvoice) return;
     try {
       setSubmittingPayment(true);
+      setPaymentError(null);
       await billingService.recordPayment(paymentInvoice.id, {
         amount: Number(paymentAmount),
         paymentMethod,
@@ -109,7 +111,7 @@ export function FinanceDashboard() {
       await fetchDashboardData();
     } catch (err: any) {
       console.error('Quick payment failed:', err);
-      alert(err.response?.data?.message || 'Payment recording failed');
+      setPaymentError(err.response?.data?.message || 'Payment recording failed. Please verify parameters.');
     } finally {
       setSubmittingPayment(false);
     }
@@ -566,11 +568,18 @@ export function FinanceDashboard() {
               <button
                 type="button"
                 onClick={() => setPaymentInvoice(null)}
-                className="text-slate-400 hover:text-slate-600 dark:hover:text-zinc-200 text-sm"
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-zinc-200 text-sm cursor-pointer"
               >
                 ✕
               </button>
             </div>
+
+            {paymentError && (
+              <div className="p-3 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/50 rounded-xl flex items-center gap-2 text-rose-700 dark:text-rose-400 text-xs animate-in fade-in">
+                <AlertTriangle className="w-4 h-4 shrink-0" />
+                <span>{paymentError}</span>
+              </div>
+            )}
 
             <div className="bg-slate-50 dark:bg-zinc-950 p-3 rounded-xl border border-slate-200/80 dark:border-zinc-800 text-xs space-y-1">
               <div className="flex justify-between">

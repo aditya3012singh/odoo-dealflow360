@@ -30,6 +30,7 @@ router.get("/profile/upload-url", authenticateJWT, AuthController.getProfileUplo
 
 // 👤 Profile view / edit
 router.get("/profile", authenticateJWT, AuthController.getProfile);
+router.get("/me", authenticateJWT, AuthController.getProfile);
 router.put("/profile", authenticateJWT, AuthController.updateProfile);
 router.get("/user/:username", AuthController.getPublicProfile);
 

@@ -9,7 +9,7 @@ const router = Router();
 const managers = [Role.ADMIN, Role.SALES_MANAGER, Role.FINANCE, Role.OPERATIONS];
 
 router.get('/alerts',               authenticateJWT, requireRole(...managers), IntelligenceController.listAlerts);
-router.post('/scan',                authenticateJWT, requireRole(Role.ADMIN, Role.OPERATIONS), IntelligenceController.runHealthScan);
+router.post('/scan',                authenticateJWT, requireRole(...managers), IntelligenceController.runHealthScan);
 router.patch('/alerts/:id/ack',     authenticateJWT, requireRole(...managers), IntelligenceController.acknowledgeAlert);
 router.patch('/alerts/:id/resolve', authenticateJWT, requireRole(...managers), IntelligenceController.resolveAlert);
 

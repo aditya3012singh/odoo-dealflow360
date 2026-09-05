@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { sanitizeErrorMessage } from './api';
 
 const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
 
@@ -23,8 +24,31 @@ portalApi.interceptors.response.use(
     if (err.response?.status === 401) {
       localStorage.removeItem('portalToken');
       localStorage.removeItem('portalCustomer');
-      window.location.href = '/portal/login';
+      if (!window.location.pathname.includes('/portal/login') && !window.location.pathname.includes('/login')) {
+        window.location.href = '/portal/login';
+      }
     }
+
+    if (err.response?.data) {
+      if (typeof err.response.data === 'object') {
+        if (err.response.data.message) {
+          err.response.data.message = sanitizeErrorMessage(err.response.data.message);
+        }
+        if (err.response.data.error) {
+          err.response.data.error = sanitizeErrorMessage(err.response.data.error);
+        }
+      } else if (typeof err.response.data === 'string') {
+        err.response.data = {
+          success: false,
+          message: sanitizeErrorMessage(err.response.data),
+        };
+      }
+    }
+
+    if (err.message) {
+      err.message = sanitizeErrorMessage(err.message);
+    }
+
     return Promise.reject(err);
   }
 );
@@ -155,13 +179,18 @@ export const portalService = {
     return res.data.data;
   },
 
+  async declineQuotation(id: string, reason?: string): Promise<any> {
+    const res = await portalApi.post(`/quotations/${id}/decline`, { reason });
+    return res.data.data;
+  },
+
   async getComments(id: string): Promise<any[]> {
     const res = await portalApi.get(`/quotations/${id}/comments`);
     return res.data.data;
   },
 
   async addComment(id: string, message: string): Promise<any> {
-    const res = await portalApi.post(`/quotations/${id}/comments`, { message });
+    const res = await portalApi.post(`/quotations/${id}/comments`, { comment: message, message });
     return res.data.data;
   },
 

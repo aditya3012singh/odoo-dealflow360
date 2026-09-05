@@ -240,5 +240,67 @@ export const adminService = {
     const res = await api.patch('/admin/inventory', payload);
     return res.data.data;
   },
+
+  async getQueueMetrics(): Promise<QueueMetrics> {
+    const res = await api.get('/admin/queue/metrics');
+    return res.data.data;
+  },
+
+  async retryFailedJobs(count = 20): Promise<{ retriedCount: number }> {
+    const res = await api.post('/admin/queue/retry-failed', { count });
+    return res.data.data;
+  },
+
+  async listAuditLogs(params?: {
+    entityType?: string;
+    page?: number;
+    limit?: number;
+  }): Promise<AuditLogResponse> {
+    const res = await api.get('/admin/audit-logs', { params });
+    return res.data.data;
+  },
 };
+
+export interface QueueMetrics {
+  queue: string;
+  isMock: boolean;
+  counts: {
+    active: number;
+    completed: number;
+    failed: number;
+    delayed: number;
+    waiting: number;
+    paused: number;
+  };
+  failedJobs?: Array<{
+    id: string;
+    name: string;
+    failedReason: string;
+    attemptsMade: number;
+    timestamp: number;
+  }>;
+}
+
+export interface AuditLogItem {
+  id: string;
+  entityType: string;
+  entityId: string;
+  action: string;
+  performedBy: string;
+  userRole: string;
+  oldValue?: any;
+  newValue?: any;
+  reason?: string;
+  createdAt: string;
+}
+
+export interface AuditLogResponse {
+  logs: AuditLogItem[];
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  };
+}
 

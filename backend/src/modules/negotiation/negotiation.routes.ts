@@ -18,6 +18,7 @@ router.post('/quotations/request',            authenticatePortal, NegotiationCon
 router.get('/quotations/:id',                authenticatePortal, NegotiationController.getRestrictedQuote);
 router.post('/quotations/:id/counter-offer', authenticatePortal, NegotiationController.submitCounterOffer);
 router.post('/quotations/:id/confirm',       authenticatePortal, NegotiationController.confirmAndConvert);
+router.post('/quotations/:id/decline',       authenticatePortal, NegotiationController.declineQuotation);
 router.get('/orders',                         authenticatePortal, NegotiationController.listPortalOrders);
 router.get('/billing',                        authenticatePortal, NegotiationController.listPortalBilling);
 router.get('/profile',                        authenticatePortal, NegotiationController.getPortalProfile);

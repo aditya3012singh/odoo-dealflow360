@@ -16,6 +16,8 @@ import {
   Server,
   Clock,
   FileText,
+  Cpu,
+  RotateCcw,
 } from 'lucide-react';
 import { StatCard } from '../../components/ui/StatCard';
 import { Badge } from '../../components/ui/Badge';
@@ -26,6 +28,7 @@ import {
   type AdminUser,
   type SystemHealthData,
   type RecentActivity,
+  type QueueMetrics,
 } from '../../services/admin.service';
 import { ROLE_COLORS, type Role } from '../../types';
 
@@ -35,6 +38,9 @@ export function AdminDashboard() {
   const [overview, setOverview] = useState<AdminOverview | null>(null);
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [health, setHealth] = useState<SystemHealthData | null>(null);
+  const [queueMetrics, setQueueMetrics] = useState<QueueMetrics | null>(null);
+  const [retryingQueue, setRetryingQueue] = useState(false);
+  const [queueActionMsg, setQueueActionMsg] = useState<string | null>(null);
   const [recentActivities, setRecentActivities] = useState<RecentActivity[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -53,21 +59,40 @@ export function AdminDashboard() {
     try {
       setLoading(true);
       setError(null);
-      const [overData, usersData, healthData, activitiesData] = await Promise.all([
+      const [overData, usersData, healthData, activitiesData, queueData] = await Promise.all([
         adminService.getOverview().catch(() => null),
         adminService.listUsers().catch(() => []),
         adminService.getSystemHealth().catch(() => null),
         adminService.getRecentActivity().catch(() => []),
+        adminService.getQueueMetrics().catch(() => null),
       ]);
       setOverview(overData);
       setUsers(usersData);
       setHealth(healthData);
       setRecentActivities(activitiesData);
+      setQueueMetrics(queueData);
     } catch (err: any) {
       console.error('Failed to load admin data:', err);
       setError(err.response?.data?.message || 'Failed to load admin overview');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleRetryFailedJobs = async () => {
+    try {
+      setRetryingQueue(true);
+      setQueueActionMsg(null);
+      const res = await adminService.retryFailedJobs(20);
+      setQueueActionMsg(`Successfully requeued ${res.retriedCount} jobs!`);
+      const updated = await adminService.getQueueMetrics().catch(() => null);
+      if (updated) setQueueMetrics(updated);
+      setTimeout(() => setQueueActionMsg(null), 4000);
+    } catch (err: any) {
+      setQueueActionMsg(`Retry failed: ${err?.response?.data?.message || err.message}`);
+      setTimeout(() => setQueueActionMsg(null), 4000);
+    } finally {
+      setRetryingQueue(false);
     }
   };
 
@@ -402,6 +427,62 @@ export function AdminDashboard() {
             <p className="text-emerald-600/80 dark:text-emerald-500/80 text-[10px] mt-0.5">
               Live audit logging active & telemetry syncing
             </p>
+          </div>
+
+          {/* BullMQ Worker & Background Queue Telemetry */}
+          <div className="bg-white dark:bg-zinc-900 rounded-xl border border-slate-200 dark:border-zinc-800 p-5 shadow-sm space-y-4 transition-colors">
+            <div className="flex items-center justify-between">
+              <h2 className="text-sm font-semibold text-slate-900 dark:text-white flex items-center gap-2">
+                <Cpu className="w-4 h-4 text-blue-500" />
+                Background Worker & Queue
+              </h2>
+              <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-900/50">
+                {queueMetrics?.queue || 'dealflow-core'}
+              </span>
+            </div>
+            <p className="text-xs text-slate-400 dark:text-zinc-500">
+              BullMQ async worker telemetry: PDF generation, invoice proration, and notifications
+            </p>
+
+            {queueActionMsg && (
+              <div className="p-2.5 rounded-lg bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 text-xs text-blue-700 dark:text-blue-300 font-medium">
+                {queueActionMsg}
+              </div>
+            )}
+
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1">
+              <div className="p-2.5 rounded-lg bg-slate-50 dark:bg-zinc-950/60 border border-slate-100 dark:border-zinc-800/80 text-center">
+                <span className="text-[10px] uppercase tracking-wider text-slate-400 dark:text-zinc-500 font-semibold block">Active</span>
+                <span className="text-sm font-bold text-slate-900 dark:text-white mt-0.5 block">{queueMetrics?.counts.active ?? 0}</span>
+              </div>
+              <div className="p-2.5 rounded-lg bg-emerald-50/50 dark:bg-emerald-950/20 border border-emerald-100 dark:border-emerald-900/30 text-center">
+                <span className="text-[10px] uppercase tracking-wider text-emerald-600 dark:text-emerald-400 font-semibold block">Completed</span>
+                <span className="text-sm font-bold text-emerald-700 dark:text-emerald-300 mt-0.5 block">{queueMetrics?.counts.completed ?? 0}</span>
+              </div>
+              <div className="p-2.5 rounded-lg bg-amber-50/50 dark:bg-amber-950/20 border border-amber-100 dark:border-amber-900/30 text-center">
+                <span className="text-[10px] uppercase tracking-wider text-amber-600 dark:text-amber-400 font-semibold block">Waiting</span>
+                <span className="text-sm font-bold text-amber-700 dark:text-amber-300 mt-0.5 block">{queueMetrics?.counts.waiting ?? 0}</span>
+              </div>
+              <div className="p-2.5 rounded-lg bg-rose-50/50 dark:bg-rose-950/20 border border-rose-100 dark:border-rose-900/30 text-center">
+                <span className="text-[10px] uppercase tracking-wider text-rose-600 dark:text-rose-400 font-semibold block">Failed</span>
+                <span className="text-sm font-bold text-rose-700 dark:text-rose-300 mt-0.5 block">{queueMetrics?.counts.failed ?? 0}</span>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between pt-2 border-t border-slate-100 dark:border-zinc-800/60">
+              <span className="text-xs text-slate-500 dark:text-zinc-400 flex items-center gap-1.5">
+                <span className={`w-2 h-2 rounded-full ${(queueMetrics?.counts.failed ?? 0) > 0 ? 'bg-amber-500 animate-ping' : 'bg-emerald-500'}`} />
+                {(queueMetrics?.counts.failed ?? 0) > 0 ? `${queueMetrics?.counts.failed} jobs require attention` : 'Worker healthy & processing'}
+              </span>
+              <button
+                onClick={handleRetryFailedJobs}
+                disabled={retryingQueue || (queueMetrics?.counts.failed ?? 0) === 0}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-slate-900 hover:bg-slate-800 dark:bg-white dark:hover:bg-zinc-100 text-white dark:text-zinc-900 transition disabled:opacity-40 disabled:cursor-not-allowed shadow-sm"
+              >
+                <RotateCcw className={`w-3 h-3 ${retryingQueue ? 'animate-spin' : ''}`} />
+                {retryingQueue ? 'Replaying...' : 'Retry Failed'}
+              </button>
+            </div>
           </div>
         </div>
       </div>

@@ -55,6 +55,7 @@ export class FulfillmentController {
           backorders: { include: { product: true } },
           invoices: true,
           subscriptions: true,
+          quotation: { select: { id: true, quotationNumber: true } },
         },
         orderBy: { createdAt: 'desc' },
       });

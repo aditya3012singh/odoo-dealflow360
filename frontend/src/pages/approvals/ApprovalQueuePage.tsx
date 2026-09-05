@@ -12,6 +12,8 @@ import {
   Clock,
   Layers,
   Info,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
 import { approvalService } from '../../services/approval.service';
 import type { Approval } from '../../types';
@@ -36,6 +38,14 @@ export function ApprovalQueuePage() {
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'ALL' | 'LEVEL_1' | 'LEVEL_2'>('ALL');
+  const [collapsedQuotes, setCollapsedQuotes] = useState<Record<string, boolean>>({});
+
+  const toggleCollapse = (quoteId: string) => {
+    setCollapsedQuotes((prev) => ({
+      ...prev,
+      [quoteId]: !prev[quoteId],
+    }));
+  };
 
   // Decision modal state
   const [selectedApproval, setSelectedApproval] = useState<Approval | null>(null);
@@ -346,59 +356,80 @@ export function ApprovalQueuePage() {
                   </div>
                 )}
 
-                {/* Line Items Detail Preview */}
-                <div className="border border-slate-100 dark:border-zinc-800 rounded-xl overflow-hidden">
-                  <div className="bg-slate-50 dark:bg-zinc-950/60 px-3.5 py-2 text-[11px] font-semibold text-slate-600 dark:text-zinc-400 uppercase tracking-wider flex items-center justify-between">
-                    <span className="flex items-center gap-1.5">
-                      <Layers className="w-3.5 h-3.5" /> Products in Quotation ({quote.items?.length || 0})
+                {/* Line Items Detail Preview (Collapsible) */}
+                <div className="border border-slate-100 dark:border-zinc-800 rounded-xl overflow-hidden transition-all">
+                  <button
+                    type="button"
+                    onClick={() => toggleCollapse(quote.id)}
+                    className="w-full bg-slate-50 dark:bg-zinc-950/60 px-3.5 py-2.5 text-[11px] font-semibold text-slate-600 dark:text-zinc-400 uppercase tracking-wider flex items-center justify-between hover:bg-slate-100/80 dark:hover:bg-zinc-900 transition cursor-pointer"
+                  >
+                    <span className="flex items-center gap-1.5 text-slate-700 dark:text-zinc-300">
+                      <Layers className="w-3.5 h-3.5 text-indigo-500" />
+                      <span>Products in Quotation ({quote.items?.length || 0})</span>
+                      {quote.items?.some((it) => Number(it.discountPercentage || 0) > tierLimit) && (
+                        <span className="ml-1 px-1.5 py-0.2 rounded bg-rose-100 text-rose-700 dark:bg-rose-950/60 dark:text-rose-400 text-[10px] lowercase font-semibold">
+                          excess discount detected
+                        </span>
+                      )}
                     </span>
-                    <span>Line Total & Margin</span>
-                  </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] text-slate-400 font-normal">
+                        {collapsedQuotes[quote.id] ? 'Show line breakdown' : 'Hide details'}
+                      </span>
+                      {collapsedQuotes[quote.id] ? (
+                        <ChevronDown className="w-3.5 h-3.5" />
+                      ) : (
+                        <ChevronUp className="w-3.5 h-3.5" />
+                      )}
+                    </div>
+                  </button>
 
-                  <div className="divide-y divide-slate-100 dark:divide-zinc-800/60 max-h-48 overflow-y-auto">
-                    {quote.items?.map((item) => {
-                      const itemDisc = Number(item.discountPercentage || 0);
-                      const isExcess = itemDisc > tierLimit;
-                      const itemMargin = Number(item.marginPercentage || 0);
+                  {!collapsedQuotes[quote.id] && (
+                    <div className="divide-y divide-slate-100 dark:divide-zinc-800/60 max-h-56 overflow-y-auto animate-in fade-in duration-150">
+                      {quote.items?.map((item) => {
+                        const itemDisc = Number(item.discountPercentage || 0);
+                        const isExcess = itemDisc > tierLimit;
+                        const itemMargin = Number(item.marginPercentage || 0);
 
-                      return (
-                        <div
-                          key={item.id}
-                          className="px-3.5 py-2.5 flex items-center justify-between text-xs hover:bg-slate-50/40 dark:hover:bg-zinc-950/30"
-                        >
-                          <div className="min-w-0 pr-3">
-                            <div className="font-semibold text-slate-900 dark:text-white truncate">
-                              {item.product?.name}
-                            </div>
-                            <div className="text-[11px] text-slate-400 font-mono">
-                              ₹{Number(item.unitPrice).toLocaleString('en-IN')} × {item.quantity} units
-                            </div>
-                          </div>
-
-                          <div className="flex items-center gap-4 text-right">
-                            <div>
-                              <span
-                                className={`inline-block font-mono font-semibold px-2 py-0.5 rounded text-[11px] ${
-                                  isExcess
-                                    ? 'bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300'
-                                    : 'bg-slate-100 text-slate-700 dark:bg-zinc-800 dark:text-zinc-300'
-                                }`}
-                              >
-                                {itemDisc}% Disc. {isExcess && `(+${itemDisc - tierLimit}% excess)`}
-                              </span>
-                              <div className="text-[10px] text-slate-400 mt-0.5">
-                                Margin: <strong className={itemMargin < 20 ? 'text-rose-500' : 'text-emerald-500'}>{itemMargin.toFixed(1)}%</strong>
+                        return (
+                          <div
+                            key={item.id}
+                            className="px-3.5 py-2.5 flex items-center justify-between text-xs hover:bg-slate-50/40 dark:hover:bg-zinc-950/30"
+                          >
+                            <div className="min-w-0 pr-3">
+                              <div className="font-semibold text-slate-900 dark:text-white truncate">
+                                {item.product?.name}
+                              </div>
+                              <div className="text-[11px] text-slate-400 font-mono">
+                                ₹{Number(item.unitPrice).toLocaleString('en-IN')} × {item.quantity} units
                               </div>
                             </div>
 
-                            <div className="font-mono font-bold text-slate-900 dark:text-white min-w-[90px]">
-                              ₹{Number(item.lineTotal).toLocaleString('en-IN')}
+                            <div className="flex items-center gap-4 text-right">
+                              <div>
+                                <span
+                                  className={`inline-block font-mono font-semibold px-2 py-0.5 rounded text-[11px] ${
+                                    isExcess
+                                      ? 'bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300'
+                                      : 'bg-slate-100 text-slate-700 dark:bg-zinc-800 dark:text-zinc-300'
+                                  }`}
+                                >
+                                  {itemDisc}% Disc. {isExcess && `(+${itemDisc - tierLimit}% excess)`}
+                                </span>
+                                <div className="text-[10px] text-slate-400 mt-0.5">
+                                  Margin: <strong className={itemMargin < 20 ? 'text-rose-500' : 'text-emerald-500'}>{itemMargin.toFixed(1)}%</strong>
+                                </div>
+                              </div>
+
+                              <div className="font-mono font-bold text-slate-900 dark:text-white min-w-[90px]">
+                                ₹{Number(item.lineTotal).toLocaleString('en-IN')}
+                              </div>
                             </div>
                           </div>
-                        </div>
-                      );
-                    })}
-                  </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
 
                 {/* Actions Footer */}

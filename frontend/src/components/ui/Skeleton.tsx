@@ -689,3 +689,62 @@ export function DealHealthSkeleton() {
     </div>
   );
 }
+
+export function OrdersSkeleton() {
+  return (
+    <div className="w-full space-y-6 pb-12">
+      {/* Header Skeleton */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 dark:border-zinc-800 pb-4">
+        <div className="space-y-2">
+          <Skeleton className="h-7 w-56 rounded" />
+          <Skeleton className="h-4 w-96 rounded" />
+        </div>
+        <div className="flex items-center gap-2.5">
+          <Skeleton className="h-9 w-9 rounded-lg" />
+          <Skeleton className="h-9 w-36 rounded-lg" />
+          <Skeleton className="h-9 w-36 rounded-lg" />
+        </div>
+      </div>
+
+      {/* KPI Cards Skeleton */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <StatCardSkeleton />
+        <StatCardSkeleton />
+        <StatCardSkeleton />
+        <StatCardSkeleton />
+      </div>
+
+      {/* Filter / Search Bar Skeleton */}
+      <div className="flex flex-col sm:flex-row items-center gap-3 bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-xl p-3 shadow-sm">
+        <Skeleton className="h-9 flex-1 w-full rounded-lg" />
+        <Skeleton className="h-9 w-full sm:w-44 rounded-lg" />
+      </div>
+
+      {/* Table Skeleton */}
+      <div className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-xl overflow-hidden shadow-sm">
+        <div className="p-4 border-b border-slate-100 dark:border-zinc-800 flex items-center justify-between">
+          <Skeleton className="h-5 w-44 rounded" />
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-left">
+            <thead className="bg-slate-50 dark:bg-zinc-950 border-b border-slate-100 dark:border-zinc-800">
+              <tr>
+                {Array.from({ length: 8 }).map((_, i) => (
+                  <th key={i} className="py-3 px-4">
+                    <Skeleton className="h-3 w-16 rounded" />
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {Array.from({ length: 6 }).map((_, i) => (
+                <TableRowSkeleton key={i} columns={8} />
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+

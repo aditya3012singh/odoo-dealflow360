@@ -63,7 +63,7 @@ export interface OrderItem {
   quantity: number;
   unitPrice: number;
   lineTotal: number;
-  product: { id: string; name: string; sku: string; unit: string };
+  product: { id: string; name: string; sku: string; unit: string; isRecurring?: boolean };
 }
 
 export interface Order {
@@ -72,6 +72,7 @@ export interface Order {
   customerId: string;
   customer?: Customer;
   quotationId: string;
+  quotation?: { id: string; quotationNumber: string };
   status: string;
   totalAmount: number;
   subtotal: number;

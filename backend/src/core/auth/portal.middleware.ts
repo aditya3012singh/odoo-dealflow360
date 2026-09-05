@@ -68,7 +68,15 @@ export function authenticatePortal(req: TracedRequest, res: Response, next: Next
   const tokenHash = hashPortalToken(rawToken);
 
   prisma.customer
-    .findFirst({ where: { portalToken: tokenHash, portalEnabled: true } })
+    .findFirst({
+      where: {
+        OR: [
+          { portalToken: tokenHash },
+          { portalToken: rawToken },
+        ],
+        portalEnabled: true,
+      },
+    })
     .then(async (customer) => {
       if (!customer) {
         logger.warn(`[Portal] Invalid or revoked portal token attempt. Hash: ${tokenHash.substring(0, 12)}...`);

@@ -77,6 +77,24 @@ export class NegotiationController {
   }
 
   /**
+   * Customer portal: decline a quotation proposal
+   */
+  static async declineQuotation(req: TracedRequest, res: FormattedResponse, next: NextFunction) {
+    try {
+      const id = req.params.id as string;
+      const { reason } = req.body;
+      const customerId = req.portalUser!.customerId;
+
+      const result = await NegotiationService.declineQuotation(id, customerId, reason);
+      return res.ok
+        ? res.ok(result, 'Quotation proposal declined.')
+        : res.json({ success: true, data: result });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
    * Customer portal: get customer dashboard data
    */
   static async getPortalDashboard(req: TracedRequest, res: FormattedResponse, next: NextFunction) {
@@ -464,12 +482,21 @@ export class NegotiationController {
         });
       }
 
-      // Determine or issue portal token
+      // Determine or issue portal token, always syncing to database
+      const { hashPortalToken } = await import('../../core/auth/portal.middleware.js');
       let rawToken: string;
       if (normalizedEmail === 'procurement@acme.com') {
         rawToken = 'acme_portal_demo_token_2026';
+        await prisma.customer.update({
+          where: { id: customer.id },
+          data: { portalToken: hashPortalToken(rawToken), portalEnabled: true },
+        });
       } else if (normalizedEmail === 'buyer@betatech.io') {
         rawToken = 'beta_portal_demo_token_2026';
+        await prisma.customer.update({
+          where: { id: customer.id },
+          data: { portalToken: hashPortalToken(rawToken), portalEnabled: true },
+        });
       } else {
         rawToken = await issuePortalToken(customer.id);
       }

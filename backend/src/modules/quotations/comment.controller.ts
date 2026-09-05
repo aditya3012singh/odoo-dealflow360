@@ -12,7 +12,8 @@ export class CommentController {
   static async addComment(req: TracedRequest, res: FormattedResponse, next: NextFunction) {
     try {
       const quotationId = req.params.id as string;
-      const { comment, quotationItemId } = req.body;
+      const comment = (req.body.comment || req.body.message) as string | undefined;
+      const quotationItemId = req.body.quotationItemId as string | undefined;
 
       if (!comment || typeof comment !== 'string' || comment.trim().length === 0) {
         return res.status(400).json({ success: false, message: 'Comment text is required.' });
