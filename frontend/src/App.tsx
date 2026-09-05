@@ -15,6 +15,16 @@ import { PlaceholderPage } from './pages/PlaceholderPage';
 import { PortalLoginPage } from './pages/portal/PortalLoginPage';
 import { PortalDashboard } from './pages/portal/PortalDashboard';
 import { PortalQuotationDetail } from './pages/portal/PortalQuotationDetail';
+import { PortalProfilePage } from './pages/portal/PortalProfilePage';
+import { QuotationListPage } from './pages/quotations/QuotationListPage';
+import { QuotationBuilderPage } from './pages/quotations/QuotationBuilderPage';
+import { ApprovalQueuePage } from './pages/approvals/ApprovalQueuePage';
+import { FulfillmentPage } from './pages/fulfillment/FulfillmentPage';
+import { BillingPage } from './pages/billing/BillingPage';
+import { DealHealthPage } from './pages/intelligence/DealHealthPage';
+import { CustomerListPage } from './pages/customers/CustomerListPage';
+import { ReportsAnalyticsPage } from './pages/reports/ReportsAnalyticsPage';
+import { AdminConfigPage } from './pages/admin/AdminConfigPage';
 
 import { ThemeProvider } from './context/ThemeContext';
 
@@ -48,6 +58,7 @@ function AppRoutes() {
           <Route index element={<Navigate to="/portal/dashboard" replace />} />
           <Route path="dashboard" element={<PortalDashboard />} />
           <Route path="quotations/:id" element={<PortalQuotationDetail />} />
+          <Route path="profile" element={<PortalProfilePage />} />
         </Route>
 
         {/* ── EMPLOYEE WORKSPACE ── */}
@@ -62,87 +73,17 @@ function AppRoutes() {
         >
           <Route index element={<Navigate to="/dashboard" replace />} />
           <Route path="dashboard" element={<DashboardHome />} />
-          <Route
-            path="quotations"
-            element={
-              <PlaceholderPage
-                title="Quotation Builder"
-                description="Build quotations, apply discounts, view live margin, and submit for approval."
-              />
-            }
-          />
-          <Route
-            path="approvals"
-            element={
-              <PlaceholderPage
-                title="Approval Queue"
-                description="Review pending approvals, see blended risk scores, and approve or reject quotations."
-              />
-            }
-          />
-          <Route
-            path="fulfillment"
-            element={
-              <PlaceholderPage
-                title="Fulfillment & Warehouse Split"
-                description="View multi-warehouse allocation, apply manual overrides, and manage shipments."
-              />
-            }
-          />
-          <Route
-            path="billing"
-            element={
-              <PlaceholderPage
-                title="Billing & Invoices"
-                description="Manage invoices, subscription schedules, proration, and record payments."
-              />
-            }
-          />
-          <Route
-            path="orders"
-            element={
-              <PlaceholderPage
-                title="Orders"
-                description="View confirmed orders, track fulfillment status, and manage order lifecycle."
-              />
-            }
-          />
-          <Route
-            path="deal-health"
-            element={
-              <PlaceholderPage
-                title="Deal Health Dashboard"
-                description="Monitor stalled deals, discount anomalies, margin erosion, and revenue slippage."
-              />
-            }
-          />
-          <Route
-            path="reports"
-            element={
-              <PlaceholderPage
-                title="Reports & Analytics"
-                description="Filter by period, rep, product, and approval status. Export to PDF or XLS."
-              />
-            }
-          />
-          <Route
-            path="customers"
-            element={
-              <PlaceholderPage
-                title="Customer Management"
-                description="View customers, manage tiers, issue portal tokens, and track portal activity."
-              />
-            }
-          />
-          <Route
-            path="admin"
-            element={
-              <PlaceholderPage
-                title="Admin Configuration"
-                description="Configure products, price lists, discount tiers, warehouses, and subscription plans."
-              />
-            }
-          />
+          <Route path="quotations" element={<QuotationListPage />} />
+          <Route path="quotations/new" element={<QuotationBuilderPage />} />
+          <Route path="quotations/:id" element={<QuotationBuilderPage />} />
+          <Route path="approvals" element={<ApprovalQueuePage />} />
+          <Route path="fulfillment" element={<FulfillmentPage />} />
+          <Route path="billing" element={<BillingPage />} />
+          <Route path="orders" element={<FulfillmentPage />} />
+          <Route path="deal-health" element={<DealHealthPage />} />
+          <Route path="reports" element={<ReportsAnalyticsPage />} />
+          <Route path="customers" element={<CustomerListPage />} />
+          <Route path="admin" element={<AdminConfigPage />} />
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Route>
 

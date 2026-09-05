@@ -15,6 +15,7 @@ router.get('/meta/products',  authenticateJWT, authorizePermission(Permission.QU
 router.get('/',                       authenticateJWT, authorizePermission(Permission.QUOTE_READ),   QuotationController.listQuotations);
 router.post('/',                      authenticateJWT, authorizePermission(Permission.QUOTE_CREATE), QuotationController.createQuotation);
 router.get('/:id',                    authenticateJWT, authorizePermission(Permission.QUOTE_READ),   QuotationController.getQuotationById);
+router.delete('/:id',                 authenticateJWT, authorizePermission(Permission.QUOTE_UPDATE), QuotationController.deleteQuotation);
 router.post('/:id/items',             authenticateJWT, authorizePermission(Permission.QUOTE_UPDATE), QuotationController.addItem);
 router.put('/:id/items/:itemId',      authenticateJWT, authorizePermission(Permission.QUOTE_UPDATE), QuotationController.updateItem);
 router.delete('/:id/items/:itemId',   authenticateJWT, authorizePermission(Permission.QUOTE_UPDATE), QuotationController.removeItem);

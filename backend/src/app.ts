@@ -19,6 +19,8 @@ import NegotiationRouter from './modules/negotiation/negotiation.routes.js';
 import FulfillmentRouter from './modules/fulfillment/fulfillment.routes.js';
 import BillingRouter from './modules/billing/billing.routes.js';
 import IntelligenceRouter from './modules/intelligence/intelligence.routes.js';
+import AdminRouter from './modules/admin/admin.routes.js';
+import CustomerRouter from './modules/customer/customer.routes.js';
 import healthCheckService from './core/health/healthCheck.js';
 import passport from './modules/auth/passport.js';
 import { TracedRequest } from './api/middleware/traceId.middleware.js';
@@ -97,6 +99,8 @@ app.use('/api/portal', NegotiationRouter);
 app.use('/api/fulfillment', FulfillmentRouter);
 app.use('/api/billing', BillingRouter);
 app.use('/api/intelligence', IntelligenceRouter);
+app.use('/api/admin', AdminRouter);
+app.use('/api/customers', CustomerRouter);
 
 // Global Uncaught Error Handler
 app.use(errorHandler);

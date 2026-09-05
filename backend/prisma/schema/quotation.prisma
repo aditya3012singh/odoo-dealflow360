@@ -3,7 +3,7 @@ model Quotation {
   quotationNumber       String            @unique
   customerId            String
   customer              Customer          @relation(fields: [customerId], references: [id])
-  salesRepId            String
+  salesRepId            String  
   salesRep              User              @relation("SalesRepQuotations", fields: [salesRepId], references: [id])
 
   status                QuotationStatus   @default(DRAFT)

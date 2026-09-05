@@ -142,6 +142,17 @@ export class QuotationController {
     }
   }
 
+  static async deleteQuotation(req: TracedRequest, res: FormattedResponse, next: NextFunction) {
+    try {
+      const actor = getActor(req);
+      const id = req.params.id as string;
+      const result = await QuotationService.deleteQuotation(id, actor);
+      return res.ok ? res.ok(result, 'Quotation deleted successfully') : res.json({ success: true, data: result });
+    } catch (err) {
+      next(err);
+    }
+  }
+
   static async submitQuotation(req: TracedRequest, res: FormattedResponse, next: NextFunction) {
     try {
       const actor = getActor(req);

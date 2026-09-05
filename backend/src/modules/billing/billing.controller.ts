@@ -16,6 +16,18 @@ function getActor(req: TracedRequest): AuthenticatedActor {
 }
 
 export class BillingController {
+  static async listInvoices(req: TracedRequest, res: FormattedResponse, next: NextFunction) {
+    try {
+      const invoices = await prisma.invoice.findMany({
+        include: { items: true, payments: true, order: { include: { customer: true } } },
+        orderBy: { issuedAt: 'desc' },
+      });
+      return res.ok ? res.ok(invoices, 'Invoices retrieved') : res.json({ success: true, data: invoices });
+    } catch (err) {
+      next(err);
+    }
+  }
+
   static async getOrderBilling(req: TracedRequest, res: FormattedResponse, next: NextFunction) {
     try {
       const actor = getActor(req);
@@ -85,6 +97,48 @@ export class BillingController {
         daysInMonth ? Number(daysInMonth) : 30
       );
       return res.ok ? res.ok(proration, 'Proration calculated') : res.json({ success: true, data: proration });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  static async listSubscriptions(req: TracedRequest, res: FormattedResponse, next: NextFunction) {
+    try {
+      const subscriptions = await prisma.subscription.findMany({
+        include: {
+          customer: true,
+          product: true,
+          plan: true,
+          order: true,
+          billingSchedules: { orderBy: { billingDate: 'asc' } },
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+      return res.ok ? res.ok(subscriptions, 'Subscriptions retrieved') : res.json({ success: true, data: subscriptions });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  static async updateSubscriptionStatus(req: TracedRequest, res: FormattedResponse, next: NextFunction) {
+    try {
+      const id = req.params.id as string;
+      const { status } = req.body;
+
+      if (!status) {
+        return res.status(400).json({ success: false, message: 'Status is required' });
+      }
+
+      const subscription = await prisma.subscription.update({
+        where: { id },
+        data: {
+          status,
+          cancelledAt: status === 'CANCELLED' ? new Date() : undefined,
+        },
+        include: { customer: true, product: true, plan: true },
+      });
+
+      return res.ok ? res.ok(subscription, 'Subscription status updated') : res.json({ success: true, data: subscription });
     } catch (err) {
       next(err);
     }

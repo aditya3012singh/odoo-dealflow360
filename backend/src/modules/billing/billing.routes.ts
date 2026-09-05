@@ -6,6 +6,9 @@ import { Permission } from '../../core/auth/permissions.js';
 
 const router = Router();
 
+router.get('/invoices',                     authenticateJWT, authorizePermission(Permission.BILLING_READ),   BillingController.listInvoices);
+router.get('/subscriptions',                authenticateJWT, authorizePermission(Permission.BILLING_READ),   BillingController.listSubscriptions);
+router.patch('/subscriptions/:id/status',   authenticateJWT, authorizePermission(Permission.BILLING_MANAGE), BillingController.updateSubscriptionStatus);
 router.get('/orders/:orderId',              authenticateJWT, authorizePermission(Permission.BILLING_READ),   BillingController.getOrderBilling);
 router.post('/invoices/:invoiceId/pay',     authenticateJWT, authorizePermission(Permission.BILLING_PAY),    BillingController.recordPayment);
 router.post('/proration/calculate',         authenticateJWT, authorizePermission(Permission.BILLING_MANAGE), BillingController.calculateProration);

@@ -25,7 +25,7 @@ export class NegotiationService {
           select: {
             id: true,
             productId: true,
-            product: { select: { name: true, sku: true, unit: true, description: true, isRecurring: true } },
+            product: { select: { name: true, sku: true, unit: true, description: true, isRecurring: true, imageUrl: true } },
             quantity: true,
             unitPrice: true,
             discountPercentage: true,

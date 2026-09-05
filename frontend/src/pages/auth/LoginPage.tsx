@@ -3,14 +3,20 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { Eye, EyeOff, ArrowRight } from 'lucide-react';
+import { Eye, EyeOff, ArrowRight, AlertCircle, Lock } from 'lucide-react';
 import { useAppDispatch, useAppSelector } from '../../store/hooks';
 import { login, clearError } from '../../store/slices/authSlice';
 import { ThemeToggle } from '../../components/common/ThemeToggle';
 
 const loginSchema = z.object({
-  email: z.string().email('Enter a valid email address'),
-  password: z.string().min(1, 'Password is required'),
+  email: z
+    .string()
+    .min(1, 'Corporate email address is required')
+    .email('Please enter a valid corporate email format (e.g. rep@dealflow360.com)'),
+  password: z
+    .string()
+    .min(1, 'Password is required')
+    .min(6, 'Password must be at least 6 characters'),
 });
 
 type LoginFormData = z.infer<typeof loginSchema>;
@@ -36,10 +42,12 @@ export function LoginPage() {
     handleSubmit,
     setValue,
     watch,
+    clearErrors,
     formState: { errors },
   } = useForm<LoginFormData>({
     resolver: zodResolver(loginSchema),
-    defaultValues: { email: '', password: 'password123' },
+    mode: 'onChange',
+    defaultValues: { email: '', password: '' },
   });
 
   const currentEmail = watch('email');
@@ -61,8 +69,10 @@ export function LoginPage() {
   };
 
   const fillDemo = (email: string) => {
-    setValue('email', email);
-    setValue('password', 'password123');
+    dispatch(clearError());
+    clearErrors();
+    setValue('email', email, { shouldValidate: true });
+    setValue('password', 'password123', { shouldValidate: true });
   };
 
   return (
@@ -120,56 +130,71 @@ export function LoginPage() {
 
           {/* Error */}
           {error && (
-            <div className="mb-4 p-2.5 rounded-lg bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/50 text-rose-700 dark:text-rose-400 text-xs text-center font-medium">
-              {error}
+            <div className="mb-4 p-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/50 text-rose-700 dark:text-rose-400 text-xs flex items-center gap-2 font-medium">
+              <AlertCircle className="w-4 h-4 shrink-0" />
+              <span>{error}</span>
             </div>
           )}
 
           {/* Form */}
-          <form onSubmit={handleSubmit(onSubmit)} className="space-y-3.5">
+          <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
             <div>
-              <label className="block text-xs font-medium text-slate-700 dark:text-zinc-300 mb-1">
-                Email address
+              <label className="block text-xs font-semibold text-slate-700 dark:text-zinc-300 mb-1">
+                Corporate Email Address
               </label>
               <input
                 {...register('email')}
                 type="email"
                 placeholder="you@dealflow360.com"
-                className="w-full px-3 py-2 rounded-lg text-sm border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-slate-900 dark:text-zinc-100 placeholder-slate-400 dark:placeholder-zinc-600 focus:outline-none focus:ring-1 focus:ring-slate-900 dark:focus:ring-white transition"
+                className={`w-full px-3.5 py-2.5 rounded-xl text-xs border bg-slate-50 dark:bg-zinc-950 text-slate-900 dark:text-zinc-100 placeholder-slate-400 dark:placeholder-zinc-600 focus:outline-none transition ${
+                  errors.email
+                    ? 'border-rose-500 ring-1 ring-rose-500'
+                    : 'border-slate-200 dark:border-zinc-800 focus:border-slate-900 dark:focus:border-white'
+                }`}
               />
               {errors.email && (
-                <p className="text-rose-500 text-[11px] mt-1 font-medium">{errors.email.message}</p>
+                <p className="text-rose-600 dark:text-rose-400 text-[11px] mt-1 font-medium flex items-center gap-1">
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                  <span>{errors.email.message}</span>
+                </p>
               )}
             </div>
 
             <div>
-              <label className="block text-xs font-medium text-slate-700 dark:text-zinc-300 mb-1">
-                Password
+              <label className="block text-xs font-semibold text-slate-700 dark:text-zinc-300 mb-1">
+                Workspace Password
               </label>
               <div className="relative">
                 <input
                   {...register('password')}
                   type={showPassword ? 'text' : 'password'}
-                  placeholder="••••••••"
-                  className="w-full px-3 py-2 pr-9 rounded-lg text-sm border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-slate-900 dark:text-zinc-100 placeholder-slate-400 dark:placeholder-zinc-600 focus:outline-none focus:ring-1 focus:ring-slate-900 dark:focus:ring-white transition"
+                  placeholder="Enter workspace password"
+                  className={`w-full px-3.5 py-2.5 pr-10 rounded-xl text-xs border bg-slate-50 dark:bg-zinc-950 text-slate-900 dark:text-zinc-100 placeholder-slate-400 dark:placeholder-zinc-600 focus:outline-none transition ${
+                    errors.password
+                      ? 'border-rose-500 ring-1 ring-rose-500'
+                      : 'border-slate-200 dark:border-zinc-800 focus:border-slate-900 dark:focus:border-white'
+                  }`}
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-zinc-200 cursor-pointer"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 dark:hover:text-zinc-200 cursor-pointer"
                 >
                   {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
               </div>
               {errors.password && (
-                <p className="text-rose-500 text-[11px] mt-1 font-medium">{errors.password.message}</p>
+                <p className="text-rose-600 dark:text-rose-400 text-[11px] mt-1 font-medium flex items-center gap-1">
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                  <span>{errors.password.message}</span>
+                </p>
               )}
             </div>
 
             <button
               type="submit"
               disabled={isLoading}
-              className="w-full mt-2 py-2.5 px-4 rounded-lg text-sm font-medium text-white bg-slate-900 hover:bg-black dark:bg-white dark:text-black dark:hover:bg-zinc-200 transition cursor-pointer flex items-center justify-center gap-2 disabled:opacity-50"
+              className="w-full mt-2 py-3 px-4 rounded-xl text-xs font-semibold text-white bg-slate-900 hover:bg-black dark:bg-white dark:text-black dark:hover:bg-zinc-200 transition cursor-pointer flex items-center justify-center gap-2 disabled:opacity-50 shadow-sm"
             >
               {isLoading ? (
                 <span>Signing in...</span>

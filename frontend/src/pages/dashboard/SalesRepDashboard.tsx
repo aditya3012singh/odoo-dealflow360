@@ -1,17 +1,24 @@
-import { FileText, Clock, TrendingUp, CheckCircle, PlusCircle, ArrowRight } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import {
+  FileText,
+  Clock,
+  TrendingUp,
+  CheckCircle,
+  PlusCircle,
+  ArrowRight,
+  Sparkles,
+  RefreshCw,
+  Plus,
+} from 'lucide-react';
 import { StatCard } from '../../components/ui/StatCard';
 import { Badge } from '../../components/ui/Badge';
+import { StatCardSkeleton, TableRowSkeleton, Skeleton } from '../../components/ui/Skeleton';
 import { useAppSelector } from '../../store/hooks';
+import { quotationService } from '../../services/quotation.service';
+import type { Quotation, QuotationStatus, Product } from '../../types';
 
-const dummyQuotations = [
-  { id: 'Q-2026-0015', customer: 'Acme Global Industries',  amount: '₹14,51,400', status: 'APPROVED',           date: 'Sep 2, 2026' },
-  { id: 'Q-2026-0014', customer: 'Beta Technologies Corp',  amount: '₹88,200',    status: 'PENDING_MANAGER',    date: 'Sep 1, 2026' },
-  { id: 'Q-2026-0013', customer: 'Nexus Solutions Ltd',     amount: '₹2,10,000',  status: 'DRAFT',              date: 'Aug 31, 2026' },
-  { id: 'Q-2026-0012', customer: 'Pinnacle Corp',           amount: '₹4,60,000',  status: 'CONVERTED_TO_ORDER', date: 'Aug 30, 2026' },
-  { id: 'Q-2026-0011', customer: 'Global Ventures Inc',     amount: '₹75,000',    status: 'REJECTED',           date: 'Aug 29, 2026' },
-];
-
-const statusBadge: Record<string, { label: string; variant: any }> = {
+const statusBadge: Record<QuotationStatus, { label: string; variant: 'default' | 'success' | 'warning' | 'danger' | 'info' | 'purple' }> = {
   DRAFT:              { label: 'Draft',            variant: 'default' },
   PENDING_MANAGER:    { label: 'Pending Approval', variant: 'warning' },
   PENDING_FINANCE:    { label: 'Pending Finance',  variant: 'purple'  },
@@ -20,97 +27,260 @@ const statusBadge: Record<string, { label: string; variant: any }> = {
   CONVERTED_TO_ORDER: { label: 'Converted',        variant: 'info'    },
 };
 
-const dummyRecs = [
-  { name: 'Thunderbolt 4 Triple-Display Dock', type: 'CROSS_SELL', marginDelta: 5000, promoted: true  },
-  { name: '24/7 Dedicated Cloud SLA',          type: 'UPSELL',     marginDelta: 3200, promoted: false },
-  { name: 'Extended Hardware Warranty',        type: 'UPSELL',     marginDelta: 1800, promoted: true  },
-];
-
 export function SalesRepDashboard() {
   const user = useAppSelector((s) => s.auth.user);
+  const navigate = useNavigate();
+
+  const [quotations, setQuotations] = useState<Quotation[]>([]);
+  const [products, setProducts] = useState<Product[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadData() {
+      try {
+        setLoading(true);
+        const [qData, pData] = await Promise.all([
+          quotationService.getQuotations(),
+          quotationService.getProducts(),
+        ]);
+        if (!isMounted) return;
+        setQuotations(qData);
+        setProducts(pData);
+      } catch (err) {
+        console.error('Error loading sales rep dashboard data:', err);
+      } finally {
+        if (isMounted) setLoading(false);
+      }
+    }
+
+    loadData();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  // Compute live metrics
+  const activeQuotations = quotations.filter(
+    (q) => q.status === 'DRAFT' || q.status === 'PENDING_MANAGER' || q.status === 'PENDING_FINANCE' || q.status === 'APPROVED'
+  ).length;
+
+  const pendingApproval = quotations.filter(
+    (q) => q.status === 'PENDING_MANAGER' || q.status === 'PENDING_FINANCE'
+  ).length;
+
+  const ordersClosed = quotations.filter((q) => q.status === 'CONVERTED_TO_ORDER').length;
+
+  const totalRevenue = quotations
+    .filter((q) => q.status === 'APPROVED' || q.status === 'CONVERTED_TO_ORDER')
+    .reduce((acc, q) => acc + Number(q.totalAmount || 0), 0);
+
+  const formattedRevenue =
+    totalRevenue >= 100000
+      ? `₹${(totalRevenue / 100000).toFixed(1)}L`
+      : `₹${totalRevenue.toLocaleString('en-IN')}`;
+
+  // Recent 5 quotations
+  const recentQuotations = [...quotations]
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+    .slice(0, 5);
+
+  // Recommendations based on products
+  const suggestedProducts = products.slice(0, 3);
 
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-xl font-bold text-slate-900 dark:text-white tracking-tight">
-            Hello, {user?.username?.split('(')[0]?.trim() ?? 'Sales Rep'} 👋
+            Hello, {user?.name || user?.username?.split('(')[0]?.trim() || 'Sales Rep'} 👋
           </h1>
-          <p className="text-xs text-slate-500 dark:text-zinc-400 mt-0.5">Here's your sales activity for today</p>
+          <p className="text-xs text-slate-500 dark:text-zinc-400 mt-0.5">
+            Here's your live sales operations overview
+          </p>
         </div>
-        <button className="flex items-center gap-2 bg-slate-900 dark:bg-white hover:bg-black dark:hover:bg-zinc-200 text-white dark:text-black px-4 py-2 rounded-lg text-xs font-medium transition cursor-pointer">
-          <PlusCircle className="w-3.5 h-3.5" />
-          New Quotation
+        <button
+          onClick={() => navigate('/quotations/new')}
+          className="inline-flex items-center gap-2 bg-slate-900 dark:bg-white hover:bg-black dark:hover:bg-zinc-200 text-white dark:text-black px-4 py-2 rounded-lg text-xs font-semibold shadow-sm transition-colors cursor-pointer"
+        >
+          <PlusCircle className="w-4 h-4" />
+          Create New Quotation
         </button>
       </div>
 
-      {/* Stats */}
-      <div className="grid grid-cols-4 gap-4">
-        <StatCard title="Active Quotations"    value="12"     subtitle="3 expiring soon"      icon={<FileText className="w-4 h-4" />}    />
-        <StatCard title="Pending Approval"     value="5"      subtitle="Awaiting manager"      icon={<Clock className="w-4 h-4" />}       />
-        <StatCard title="This Month's Revenue" value="₹24.2L" subtitle="+12% vs last month"   icon={<TrendingUp className="w-4 h-4" />}  />
-        <StatCard title="Orders Closed"        value="8"      subtitle="This month"            icon={<CheckCircle className="w-4 h-4" />} />
+      {/* Metric Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        {loading ? (
+          <>
+            <StatCardSkeleton />
+            <StatCardSkeleton />
+            <StatCardSkeleton />
+            <StatCardSkeleton />
+          </>
+        ) : (
+          <>
+            <StatCard
+              title="Active Quotations"
+              value={activeQuotations.toString()}
+              subtitle="Drafts & pending deals"
+              icon={<FileText className="w-4 h-4" />}
+            />
+            <StatCard
+              title="Pending Approvals"
+              value={pendingApproval.toString()}
+              subtitle="Awaiting manager/finance sign-off"
+              icon={<Clock className="w-4 h-4" />}
+            />
+            <StatCard
+              title="Approved Revenue"
+              value={formattedRevenue}
+              subtitle="From approved & converted quotes"
+              icon={<TrendingUp className="w-4 h-4" />}
+            />
+            <StatCard
+              title="Orders Closed"
+              value={ordersClosed.toString()}
+              subtitle="Converted to fulfillment"
+              icon={<CheckCircle className="w-4 h-4" />}
+            />
+          </>
+        )}
       </div>
 
-      <div className="grid grid-cols-3 gap-4">
-        {/* Quotation table */}
-        <div className="col-span-2 bg-white dark:bg-zinc-900 rounded-xl border border-slate-200 dark:border-zinc-800 transition-colors">
+      {/* Main Content Grid */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Quotation Table */}
+        <div className="lg:col-span-2 bg-white dark:bg-zinc-900 rounded-xl border border-slate-200 dark:border-zinc-800 shadow-sm overflow-hidden transition-colors">
           <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 dark:border-zinc-800">
-            <h2 className="text-sm font-semibold text-slate-800 dark:text-zinc-100">Recent Quotations</h2>
-            <button className="text-xs text-slate-500 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-white flex items-center gap-1 transition">
-              View all <ArrowRight className="w-3 h-3" />
+            <div>
+              <h2 className="text-sm font-semibold text-slate-800 dark:text-zinc-100">Recent Quotations</h2>
+              <p className="text-xs text-slate-400 dark:text-zinc-500 mt-0.5">Your latest deals and proposal activity</p>
+            </div>
+            <button
+              onClick={() => navigate('/quotations')}
+              className="text-xs text-slate-500 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-white flex items-center gap-1 font-medium transition"
+            >
+              View all <ArrowRight className="w-3.5 h-3.5" />
             </button>
           </div>
-          <table className="w-full text-sm">
-            <thead className="bg-slate-50 dark:bg-zinc-900 text-[11px] text-slate-400 dark:text-zinc-500 uppercase tracking-wider">
-              <tr>
-                <th className="px-5 py-3 text-left font-medium">Quote #</th>
-                <th className="px-5 py-3 text-left font-medium">Customer</th>
-                <th className="px-5 py-3 text-left font-medium">Amount</th>
-                <th className="px-5 py-3 text-left font-medium">Status</th>
-                <th className="px-5 py-3 text-left font-medium">Date</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-50 dark:divide-zinc-800/60">
-              {dummyQuotations.map((q) => (
-                <tr key={q.id} className="hover:bg-slate-50 dark:hover:bg-zinc-900/50 transition cursor-pointer">
-                  <td className="px-5 py-3 font-mono text-slate-600 dark:text-zinc-400 text-xs">{q.id}</td>
-                  <td className="px-5 py-3 text-slate-700 dark:text-zinc-300 text-xs">{q.customer}</td>
-                  <td className="px-5 py-3 font-medium text-slate-900 dark:text-zinc-100 text-xs">{q.amount}</td>
-                  <td className="px-5 py-3">
-                    <Badge variant={statusBadge[q.status]?.variant ?? 'default'}>
-                      {statusBadge[q.status]?.label ?? q.status}
-                    </Badge>
-                  </td>
-                  <td className="px-5 py-3 text-slate-400 dark:text-zinc-500 text-xs">{q.date}</td>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-slate-50/70 dark:bg-zinc-950/50 text-[11px] text-slate-400 dark:text-zinc-500 uppercase tracking-wider font-semibold">
+                <tr>
+                  <th className="px-5 py-3 text-left">Quote #</th>
+                  <th className="px-5 py-3 text-left">Customer</th>
+                  <th className="px-5 py-3 text-left">Amount</th>
+                  <th className="px-5 py-3 text-left">Status</th>
+                  <th className="px-5 py-3 text-right">Created Date</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody className="divide-y divide-slate-100 dark:divide-zinc-800/60">
+                {loading ? (
+                  <>
+                    <TableRowSkeleton columns={5} />
+                    <TableRowSkeleton columns={5} />
+                    <TableRowSkeleton columns={5} />
+                    <TableRowSkeleton columns={5} />
+                  </>
+                ) : recentQuotations.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="px-5 py-8 text-center text-xs text-slate-400 dark:text-zinc-500">
+                      No quotations found. Create your first quotation to get started!
+                    </td>
+                  </tr>
+                ) : (
+                  recentQuotations.map((q) => (
+                    <tr
+                      key={q.id}
+                      onClick={() => navigate(`/quotations/${q.id}`)}
+                      className="hover:bg-slate-50/80 dark:hover:bg-zinc-800/40 transition cursor-pointer group"
+                    >
+                      <td className="px-5 py-3.5 font-mono text-xs font-semibold text-slate-700 dark:text-zinc-300 group-hover:text-slate-900 dark:group-hover:text-white">
+                        {q.quotationNumber}
+                      </td>
+                      <td className="px-5 py-3.5 text-xs text-slate-700 dark:text-zinc-300 font-medium">
+                        {q.customer?.companyName || 'Standard Account'}
+                      </td>
+                      <td className="px-5 py-3.5 font-mono text-xs font-bold text-slate-900 dark:text-zinc-100">
+                        ₹{Number(q.totalAmount || 0).toLocaleString('en-IN')}
+                      </td>
+                      <td className="px-5 py-3.5">
+                        <Badge variant={statusBadge[q.status]?.variant ?? 'default'}>
+                          {statusBadge[q.status]?.label ?? q.status}
+                        </Badge>
+                      </td>
+                      <td className="px-5 py-3.5 text-right font-mono text-xs text-slate-400 dark:text-zinc-500">
+                        {new Date(q.createdAt).toLocaleDateString('en-IN', {
+                          month: 'short',
+                          day: 'numeric',
+                        })}
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
 
-        {/* Upsell panel */}
-        <div className="bg-white dark:bg-zinc-900 rounded-xl border border-slate-200 dark:border-zinc-800 transition-colors">
-          <div className="px-5 py-4 border-b border-slate-100 dark:border-zinc-800">
-            <h2 className="text-sm font-semibold text-slate-800 dark:text-zinc-100">AI Recommendations</h2>
-            <p className="text-xs text-slate-400 dark:text-zinc-500 mt-0.5">Top margin-optimizing suggestions</p>
+        {/* AI Recommendations Panel */}
+        <div className="bg-white dark:bg-zinc-900 rounded-xl border border-slate-200 dark:border-zinc-800 shadow-sm transition-colors space-y-4 p-5">
+          <div className="flex items-center justify-between border-b border-slate-100 dark:border-zinc-800 pb-3">
+            <div className="flex items-center gap-2">
+              <Sparkles className="w-4 h-4 text-amber-500" />
+              <h2 className="text-sm font-semibold text-slate-800 dark:text-zinc-100">Margin Booster</h2>
+            </div>
+            <span className="text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded bg-amber-100 dark:bg-amber-950/50 text-amber-800 dark:text-amber-400">
+              Co-purchase AI
+            </span>
           </div>
-          <div className="p-4 space-y-3">
-            {dummyRecs.map((r) => (
-              <div key={r.name} className="p-3 border border-slate-100 dark:border-zinc-800 rounded-lg hover:border-slate-300 dark:hover:border-zinc-700 transition">
-                <div className="flex items-center justify-between mb-1.5">
-                  <Badge variant={r.type === 'UPSELL' ? 'purple' : 'info'}>{r.type}</Badge>
-                  {r.promoted && <Badge variant="warning">🔥 Promo</Badge>}
+
+          <p className="text-xs text-slate-500 dark:text-zinc-400">
+            Top catalog items to cross-sell and boost margin contribution on active deals.
+          </p>
+
+          {loading ? (
+            <div className="space-y-3">
+              <Skeleton className="h-24 w-full rounded-lg" />
+              <Skeleton className="h-24 w-full rounded-lg" />
+            </div>
+          ) : suggestedProducts.length === 0 ? (
+            <div className="p-4 text-center text-xs text-slate-400 dark:text-zinc-500">
+              No products found in catalog.
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {suggestedProducts.map((prod) => (
+                <div
+                  key={prod.id}
+                  className="p-3.5 rounded-lg border border-slate-100 dark:border-zinc-800/80 bg-slate-50/50 dark:bg-zinc-950/40 space-y-2 hover:border-slate-300 dark:hover:border-zinc-700 transition"
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <div className="text-xs font-semibold text-slate-900 dark:text-white">
+                        {prod.name}
+                      </div>
+                      <div className="text-[11px] font-mono text-slate-500 dark:text-zinc-400 mt-0.5">
+                        ₹{Number(prod.basePrice).toLocaleString('en-IN')} • {prod.category?.name || 'Hardware'}
+                      </div>
+                    </div>
+                    <Badge variant="purple">Cross-sell</Badge>
+                  </div>
+                  <button
+                    onClick={() => navigate('/quotations/new')}
+                    className="w-full mt-2 py-1.5 text-xs font-medium rounded-md bg-slate-900 hover:bg-black text-white dark:bg-white dark:hover:bg-zinc-100 dark:text-zinc-900 transition-colors flex items-center justify-center gap-1.5"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    New Quote with Product
+                  </button>
                 </div>
-                <p className="text-xs font-medium text-slate-800 dark:text-zinc-100 mt-1">{r.name}</p>
-                <p className="text-xs text-emerald-600 dark:text-emerald-400 font-medium mt-1">+₹{r.marginDelta.toLocaleString()} margin</p>
-                <button className="mt-2 w-full text-xs border border-slate-200 dark:border-zinc-800 hover:bg-slate-50 dark:hover:bg-zinc-900 text-slate-700 dark:text-zinc-300 py-1.5 rounded-lg font-medium transition">
-                  Add to Quote
-                </button>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     </div>

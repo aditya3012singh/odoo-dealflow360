@@ -227,6 +227,22 @@ export class QuotationService {
   }
 
   /**
+   * Delete a quotation completely
+   * actor must be SALES_REP owner, SALES_MANAGER, or ADMIN
+   */
+  static async deleteQuotation(quotationId: string, actor?: AuthenticatedActor) {
+    if (actor) await assertCanWriteQuote(actor, quotationId);
+    const existing = await prisma.quotation.findUnique({ where: { id: quotationId }, select: { id: true, quotationNumber: true } });
+    if (!existing) throw new Error('Quotation not found.');
+
+    await prisma.quotation.delete({
+      where: { id: quotationId },
+    });
+
+    return { id: quotationId, quotationNumber: existing.quotationNumber };
+  }
+
+  /**
    * Submit quotation for formal risk approval or auto-approval
    * actor must be SALES_REP owner, SALES_MANAGER, or ADMIN
    */
