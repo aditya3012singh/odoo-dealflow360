@@ -3,11 +3,26 @@ import { prisma } from '../../core/config/db.js';
 import { BillingEngine } from './billing.engine.js';
 import { FormattedResponse } from '../../api/middleware/responseFormatter.js';
 import { TracedRequest } from '../../api/middleware/traceId.middleware.js';
+import { Role } from '@prisma/client';
+import {
+  assertCanReadBilling,
+  assertValidPaymentAmount,
+  AuthenticatedActor,
+} from '../../core/auth/authorization.service.js';
+
+function getActor(req: TracedRequest): AuthenticatedActor {
+  if (!req.user) throw Object.assign(new Error('Unauthorized'), { statusCode: 401 });
+  return { id: req.user.id as string, role: req.user.role as Role };
+}
 
 export class BillingController {
   static async getOrderBilling(req: TracedRequest, res: FormattedResponse, next: NextFunction) {
     try {
+      const actor = getActor(req);
       const orderId = req.params.orderId as string;
+
+      // Resource-level ownership check
+      await assertCanReadBilling(actor, orderId);
 
       const invoices = await prisma.invoice.findMany({
         where: { orderId },
@@ -36,11 +51,16 @@ export class BillingController {
       const invoiceId = req.params.invoiceId as string;
       const { amount, paymentMethod } = req.body;
 
-      if (!amount) {
+      if (amount === undefined || amount === null) {
         return res.status(400).json({ success: false, message: 'Amount is required' });
       }
 
-      const result = await BillingEngine.recordPayment(invoiceId, Number(amount), paymentMethod);
+      const parsedAmount = Number(amount);
+
+      // Payment validation: amount > 0 and amount <= remaining balance
+      await assertValidPaymentAmount(invoiceId, parsedAmount);
+
+      const result = await BillingEngine.recordPayment(invoiceId, parsedAmount, paymentMethod);
       return res.ok ? res.ok(result, 'Payment recorded') : res.json({ success: true, data: result });
     } catch (err) {
       next(err);
@@ -50,6 +70,14 @@ export class BillingController {
   static async calculateProration(req: TracedRequest, res: FormattedResponse, next: NextFunction) {
     try {
       const { currentPrice, newPrice, daysRemaining, daysInMonth } = req.body;
+
+      if (currentPrice === undefined || newPrice === undefined || daysRemaining === undefined) {
+        return res.status(400).json({
+          success: false,
+          message: 'currentPrice, newPrice, and daysRemaining are required',
+        });
+      }
+
       const proration = BillingEngine.calculateProration(
         Number(currentPrice),
         Number(newPrice),

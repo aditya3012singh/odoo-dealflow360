@@ -1,13 +1,24 @@
 import { Response, NextFunction } from 'express';
 import { prisma } from '../../core/config/db.js';
-import { AllocationEngine } from './allocation.engine.js';
 import { FormattedResponse } from '../../api/middleware/responseFormatter.js';
 import { TracedRequest } from '../../api/middleware/traceId.middleware.js';
+import { Role } from '@prisma/client';
+import { assertCanReadFulfillment, AuthenticatedActor } from '../../core/auth/authorization.service.js';
+
+function getActor(req: TracedRequest): AuthenticatedActor {
+  if (!req.user) throw Object.assign(new Error('Unauthorized'), { statusCode: 401 });
+  return { id: req.user.id as string, role: req.user.role as Role };
+}
 
 export class FulfillmentController {
   static async getOrderFulfillment(req: TracedRequest, res: FormattedResponse, next: NextFunction) {
     try {
+      const actor = getActor(req);
       const orderId = req.params.orderId as string;
+
+      // Resource-level ownership check
+      await assertCanReadFulfillment(actor, orderId);
+
       const order = await prisma.order.findUnique({
         where: { id: orderId },
         include: {

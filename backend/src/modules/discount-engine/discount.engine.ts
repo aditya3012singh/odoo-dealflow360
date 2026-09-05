@@ -27,6 +27,9 @@ export interface CalculatedItem {
   discountLimit: number;
   discountExcess: number;
   riskContribution: number;
+  /** Which policy level determined the discount ceiling — for explainability */
+  policySource: string;
+  policyId?: string;
 }
 
 export interface DiscountRiskAnalysis {
@@ -87,7 +90,7 @@ export class DiscountEngine {
 
     // Pass 2: Line-level governance & risk analysis
     for (const item of initialLines) {
-      const policy = await PolicyCache.get(customerTierId, item.categoryId);
+      const policy = await PolicyCache.get(customerTierId, item.categoryId, item.productId);
       const discountLimit = policy.maxDiscount;
       const discountPercentage = Number(item.discountPercentage) || 0;
 
@@ -128,6 +131,8 @@ export class DiscountEngine {
         discountLimit,
         discountExcess,
         riskContribution,
+        policySource: policy.policySource,
+        policyId: policy.policyId,
       });
     }
 

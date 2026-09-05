@@ -1,8 +1,14 @@
 import "dotenv/config";
 import { PrismaClient, Role, RelationshipType } from "@prisma/client";
 import bcrypt from "bcrypt";
+import crypto from "crypto";
 
 const prisma = new PrismaClient();
+
+/** SHA-256 hash of a portal token — mirrors portal.middleware.ts */
+function hashPortalToken(token: string): string {
+  return crypto.createHash("sha256").update(token).digest("hex");
+}
 
 async function main() {
   console.log("🌱 Seeding DealFlow360 Database...");
@@ -89,9 +95,18 @@ async function main() {
 
   // 3. SEED CUSTOMERS
   console.log("🏢 Seeding Customers...");
+  
+  // Generate secure portal tokens (raw tokens are ONLY shown once during generation)
+  const acmePortalTokenRaw = "acme_portal_demo_token_2026"; // Demo token for testing
+  const betaPortalTokenRaw = "beta_portal_demo_token_2026"; // Demo token for testing
+  
+  console.log("🔐 Demo portal tokens (store these securely for testing):");
+  console.log(`   Acme Customer Portal Token: ${acmePortalTokenRaw}`);
+  console.log(`   Beta Customer Portal Token: ${betaPortalTokenRaw}`);
+  
   const acmeCustomer = await prisma.customer.upsert({
     where: { email: "procurement@acme.com" },
-    update: { customerTierId: goldTier.id },
+    update: { customerTierId: goldTier.id, portalToken: hashPortalToken(acmePortalTokenRaw) },
     create: {
       name: "Arthur Pendelton",
       email: "procurement@acme.com",
@@ -99,13 +114,13 @@ async function main() {
       companyName: "Acme Global Industries",
       customerTierId: goldTier.id,
       portalEnabled: true,
-      portalToken: "portal_acme_strategic_token",
+      portalToken: hashPortalToken(acmePortalTokenRaw),
     },
   });
 
   const betaCustomer = await prisma.customer.upsert({
     where: { email: "buyer@betatech.io" },
-    update: { customerTierId: silverTier.id },
+    update: { customerTierId: silverTier.id, portalToken: hashPortalToken(betaPortalTokenRaw) },
     create: {
       name: "Elena Rostova",
       email: "buyer@betatech.io",
@@ -113,7 +128,7 @@ async function main() {
       companyName: "Beta Technologies Corp",
       customerTierId: silverTier.id,
       portalEnabled: true,
-      portalToken: "portal_beta_token",
+      portalToken: hashPortalToken(betaPortalTokenRaw),
     },
   });
 

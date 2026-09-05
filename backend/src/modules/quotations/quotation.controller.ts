@@ -3,16 +3,32 @@ import { QuotationService } from './quotation.service.js';
 import { prisma } from '../../core/config/db.js';
 import { FormattedResponse } from '../../api/middleware/responseFormatter.js';
 import { TracedRequest } from '../../api/middleware/traceId.middleware.js';
+import { assertCanReadQuote, AuthenticatedActor } from '../../core/auth/authorization.service.js';
+import { Role } from '@prisma/client';
+
+/**
+ * Build an AuthenticatedActor from the request user.
+ * Throws 401 if no authenticated user is present (should not happen after authenticateJWT middleware).
+ */
+function getActor(req: TracedRequest): AuthenticatedActor {
+  if (!req.user) throw Object.assign(new Error('Unauthorized'), { statusCode: 401 });
+  return { id: req.user.id as string, role: req.user.role as Role };
+}
 
 export class QuotationController {
   static async listQuotations(req: TracedRequest, res: FormattedResponse, next: NextFunction) {
     try {
-      const { status, search, customerId, salesRepId } = req.query;
+      const actor = getActor(req);
+      const { status, search, customerId } = req.query;
+
+      // SALES_REP can only list their own quotations
+      const salesRepFilter = actor.role === Role.SALES_REP ? actor.id : (req.query.salesRepId as string | undefined);
+
       const quotations = await QuotationService.listQuotations({
         status: status as any,
         search: search as string,
         customerId: customerId as string,
-        salesRepId: salesRepId as string,
+        salesRepId: salesRepFilter,
       });
       return res.ok ? res.ok(quotations, 'Quotations retrieved') : res.json({ success: true, data: quotations });
     } catch (err) {
@@ -22,7 +38,12 @@ export class QuotationController {
 
   static async getQuotationById(req: TracedRequest, res: FormattedResponse, next: NextFunction) {
     try {
+      const actor = getActor(req);
       const id = req.params.id as string;
+
+      // Resource-level ownership check
+      await assertCanReadQuote(actor, id);
+
       const quotation = await QuotationService.getQuotationById(id);
       if (!quotation) {
         return res.status(404).json({ success: false, message: 'Quotation not found' });
@@ -35,25 +56,17 @@ export class QuotationController {
 
   static async createQuotation(req: TracedRequest, res: FormattedResponse, next: NextFunction) {
     try {
+      const actor = getActor(req);
       const { customerId, currency } = req.body ?? {};
-      const salesRepId = (req.user?.id || req.body?.salesRepId) as string | undefined;
 
       if (!customerId) {
         return res.status(400).json({ success: false, message: 'customerId is required' });
       }
 
-      // If no salesRepId provided (e.g. testing), find the first sales rep or admin
-      let effectiveSalesRepId = salesRepId;
-      if (!effectiveSalesRepId) {
-        const user = await prisma.user.findFirst({
-          where: { role: { in: ['SALES_REP', 'ADMIN'] } },
-        });
-        effectiveSalesRepId = user?.id;
-      }
-
+      // salesRepId is always sourced from the authenticated JWT — never from req.body
       const quotation = await QuotationService.createQuotation({
         customerId,
-        salesRepId: effectiveSalesRepId || '',
+        salesRepId: actor.id,
         currency,
       });
 
@@ -67,6 +80,7 @@ export class QuotationController {
 
   static async addItem(req: TracedRequest, res: FormattedResponse, next: NextFunction) {
     try {
+      const actor = getActor(req);
       const id = req.params.id as string;
       const { productId, quantity, discountPercentage, unitPrice, variantId } = req.body;
 
@@ -74,13 +88,17 @@ export class QuotationController {
         return res.status(400).json({ success: false, message: 'productId and quantity are required' });
       }
 
-      const updated = await QuotationService.addItem(id, {
-        productId,
-        quantity: Number(quantity),
-        discountPercentage: discountPercentage !== undefined ? Number(discountPercentage) : undefined,
-        unitPrice: unitPrice !== undefined ? Number(unitPrice) : undefined,
-        variantId,
-      });
+      const updated = await QuotationService.addItem(
+        id,
+        {
+          productId,
+          quantity: Number(quantity),
+          discountPercentage: discountPercentage !== undefined ? Number(discountPercentage) : undefined,
+          unitPrice: unitPrice !== undefined ? Number(unitPrice) : undefined,
+          variantId,
+        },
+        actor
+      );
 
       return res.ok ? res.ok(updated, 'Item added') : res.json({ success: true, data: updated });
     } catch (err) {
@@ -90,15 +108,21 @@ export class QuotationController {
 
   static async updateItem(req: TracedRequest, res: FormattedResponse, next: NextFunction) {
     try {
+      const actor = getActor(req);
       const id = req.params.id as string;
       const itemId = req.params.itemId as string;
       const { quantity, discountPercentage, unitPrice } = req.body;
 
-      const updated = await QuotationService.updateItem(id, itemId, {
-        quantity: quantity !== undefined ? Number(quantity) : undefined,
-        discountPercentage: discountPercentage !== undefined ? Number(discountPercentage) : undefined,
-        unitPrice: unitPrice !== undefined ? Number(unitPrice) : undefined,
-      });
+      const updated = await QuotationService.updateItem(
+        id,
+        itemId,
+        {
+          quantity: quantity !== undefined ? Number(quantity) : undefined,
+          discountPercentage: discountPercentage !== undefined ? Number(discountPercentage) : undefined,
+          unitPrice: unitPrice !== undefined ? Number(unitPrice) : undefined,
+        },
+        actor
+      );
 
       return res.ok ? res.ok(updated, 'Item updated') : res.json({ success: true, data: updated });
     } catch (err) {
@@ -108,9 +132,10 @@ export class QuotationController {
 
   static async removeItem(req: TracedRequest, res: FormattedResponse, next: NextFunction) {
     try {
+      const actor = getActor(req);
       const id = req.params.id as string;
       const itemId = req.params.itemId as string;
-      const updated = await QuotationService.removeItem(id, itemId);
+      const updated = await QuotationService.removeItem(id, itemId, actor);
       return res.ok ? res.ok(updated, 'Item removed') : res.json({ success: true, data: updated });
     } catch (err) {
       next(err);
@@ -119,16 +144,10 @@ export class QuotationController {
 
   static async submitQuotation(req: TracedRequest, res: FormattedResponse, next: NextFunction) {
     try {
+      const actor = getActor(req);
       const id = req.params.id as string;
-      const performedBy = (req.user?.id || req.body?.performedBy) as string | undefined;
 
-      let userId = performedBy;
-      if (!userId) {
-        const quote = await prisma.quotation.findUnique({ where: { id } });
-        userId = quote?.salesRepId;
-      }
-
-      const result = await QuotationService.submitQuotation(id, userId || '');
+      const result = await QuotationService.submitQuotation(id, actor.id, actor);
       return res.ok ? res.ok(result, 'Quotation submitted for review') : res.json({ success: true, data: result });
     } catch (err) {
       next(err);
@@ -137,7 +156,9 @@ export class QuotationController {
 
   static async getRecommendations(req: TracedRequest, res: FormattedResponse, next: NextFunction) {
     try {
+      const actor = getActor(req);
       const id = req.params.id as string;
+      await assertCanReadQuote(actor, id);
       const recommendations = await QuotationService.getRecommendations(id);
       return res.ok ? res.ok(recommendations, 'Recommendations retrieved') : res.json({ success: true, data: recommendations });
     } catch (err) {

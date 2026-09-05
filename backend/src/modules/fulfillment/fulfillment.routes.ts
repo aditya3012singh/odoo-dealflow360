@@ -1,10 +1,12 @@
 import { Router } from 'express';
 import { FulfillmentController } from './fulfillment.controller.js';
-import { optionalAuth } from '../../api/middleware/auth.middleware.js';
+import { authenticateJWT } from '../../api/middleware/auth.middleware.js';
+import { authorizePermission } from '../../core/auth/rbac.middleware.js';
+import { Permission } from '../../core/auth/permissions.js';
 
 const router = Router();
 
-router.get('/warehouses', optionalAuth, FulfillmentController.listWarehouses);
-router.get('/orders/:orderId', optionalAuth, FulfillmentController.getOrderFulfillment);
+router.get('/warehouses',        authenticateJWT, authorizePermission(Permission.FULFILLMENT_READ), FulfillmentController.listWarehouses);
+router.get('/orders/:orderId',   authenticateJWT, authorizePermission(Permission.FULFILLMENT_READ), FulfillmentController.getOrderFulfillment);
 
 export default router;

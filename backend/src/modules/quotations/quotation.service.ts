@@ -1,6 +1,12 @@
 import { prisma, TX_OPTIONS } from '../../core/config/db.js';
 import { DiscountEngine } from '../discount-engine/discount.engine.js';
 import { QuotationStatus, ApprovalStatus, Role, CustomerStatus } from '@prisma/client';
+import {
+  assertCanWriteQuote,
+  assertQuoteIsEditable,
+  assertQuoteIsSubmittable,
+  AuthenticatedActor,
+} from '../../core/auth/authorization.service.js';
 
 export class QuotationService {
   /**
@@ -125,6 +131,7 @@ export class QuotationService {
 
   /**
    * Add a product line item to the quotation
+   * actor must be SALES_REP owner, SALES_MANAGER, or ADMIN
    */
   static async addItem(
     quotationId: string,
@@ -134,8 +141,16 @@ export class QuotationService {
       discountPercentage?: number;
       unitPrice?: number;
       variantId?: string;
-    }
+    },
+    actor?: AuthenticatedActor
   ) {
+    // Ownership + state machine guard
+    if (actor) {
+      await assertCanWriteQuote(actor, quotationId);
+    }
+
+    const existing = await prisma.quotation.findUnique({ where: { id: quotationId }, select: { status: true } });
+    if (existing) assertQuoteIsEditable(existing.status);
     const product = await prisma.product.findUnique({
       where: { id: data.productId },
     });
@@ -173,12 +188,17 @@ export class QuotationService {
 
   /**
    * Update quantity or discount of an existing quotation item
+   * actor must be SALES_REP owner, SALES_MANAGER, or ADMIN
    */
   static async updateItem(
     quotationId: string,
     itemId: string,
-    data: { quantity?: number; discountPercentage?: number; unitPrice?: number }
+    data: { quantity?: number; discountPercentage?: number; unitPrice?: number },
+    actor?: AuthenticatedActor
   ) {
+    if (actor) await assertCanWriteQuote(actor, quotationId);
+    const existing = await prisma.quotation.findUnique({ where: { id: quotationId }, select: { status: true } });
+    if (existing) assertQuoteIsEditable(existing.status);
     await prisma.quotationItem.update({
       where: { id: itemId },
       data: {
@@ -193,8 +213,12 @@ export class QuotationService {
 
   /**
    * Remove an item from the quotation
+   * actor must be SALES_REP owner, SALES_MANAGER, or ADMIN
    */
-  static async removeItem(quotationId: string, itemId: string) {
+  static async removeItem(quotationId: string, itemId: string, actor?: AuthenticatedActor) {
+    if (actor) await assertCanWriteQuote(actor, quotationId);
+    const existing = await prisma.quotation.findUnique({ where: { id: quotationId }, select: { status: true } });
+    if (existing) assertQuoteIsEditable(existing.status);
     await prisma.quotationItem.delete({
       where: { id: itemId },
     });
@@ -204,8 +228,14 @@ export class QuotationService {
 
   /**
    * Submit quotation for formal risk approval or auto-approval
+   * actor must be SALES_REP owner, SALES_MANAGER, or ADMIN
    */
-  static async submitQuotation(quotationId: string, performedByUserId: string) {
+  static async submitQuotation(quotationId: string, performedByUserId: string, actor?: AuthenticatedActor) {
+    if (actor) await assertCanWriteQuote(actor, quotationId);
+
+    const existing = await prisma.quotation.findUnique({ where: { id: quotationId }, select: { status: true } });
+    if (existing) assertQuoteIsSubmittable(existing.status);
+
     const updatedQuote = await this.recalculateQuotation(quotationId);
 
     if (updatedQuote.items.length === 0) {

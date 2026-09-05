@@ -18,6 +18,7 @@ import ApprovalRouter from './modules/approval-engine/approval.routes.js';
 import NegotiationRouter from './modules/negotiation/negotiation.routes.js';
 import FulfillmentRouter from './modules/fulfillment/fulfillment.routes.js';
 import BillingRouter from './modules/billing/billing.routes.js';
+import IntelligenceRouter from './modules/intelligence/intelligence.routes.js';
 import healthCheckService from './core/health/healthCheck.js';
 import passport from './modules/auth/passport.js';
 import { TracedRequest } from './api/middleware/traceId.middleware.js';
@@ -95,6 +96,7 @@ app.use('/api/approvals', ApprovalRouter);
 app.use('/api/portal', NegotiationRouter);
 app.use('/api/fulfillment', FulfillmentRouter);
 app.use('/api/billing', BillingRouter);
+app.use('/api/intelligence', IntelligenceRouter);
 
 // Global Uncaught Error Handler
 app.use(errorHandler);

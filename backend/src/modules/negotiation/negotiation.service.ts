@@ -2,6 +2,7 @@ import { prisma, TX_OPTIONS } from '../../core/config/db.js';
 import { DiscountEngine } from '../discount-engine/discount.engine.js';
 import { AllocationEngine } from '../fulfillment/allocation.engine.js';
 import { BillingEngine } from '../billing/billing.engine.js';
+import logger from '../../core/logger/structuredLogger.js';
 import {
   QuotationStatus,
   CustomerStatus,
@@ -62,20 +63,44 @@ export class NegotiationService {
   ) {
     const quote = await prisma.quotation.findUnique({
       where: { id: quotationId },
-      include: {
-        customer: true,
-        items: { include: { product: true } },
+      select: {
+        id: true,
+        customerId: true,  // Explicitly select customerId
+        quotationNumber: true,
+        status: true,
+        salesRepId: true,  // Need for audit log
+        customer: {
+          select: {
+            id: true,
+            name: true,
+            companyName: true,
+            customerTierId: true,
+          },
+        },
+        items: {
+          include: { product: true },
+        },
       },
     });
 
     if (!quote) throw new Error('Quotation not found.');
 
+    // Debug: Log customer IDs to diagnose foreign key constraint violation
+    logger.info('[DEBUG submitCounterOffer]', {
+      quotationId,
+      customerId_param: customerId,
+      quote_customerId: quote.customerId,
+      quote_customerId_type: typeof quote.customerId,
+      match: customerId === quote.customerId,
+    });
+
     return await prisma.$transaction(async (tx) => {
       // 1. Create Negotiation Request record
+      // Use quote.customerId to ensure we have the correct customer ID from the database
       await tx.negotiationRequest.create({
         data: {
           quotationId,
-          customerId,
+          customerId: quote.customerId, // Use the quotation's customerId, not the parameter
           requestedDiscount,
           message: message || `Customer proposed a counter discount of ${requestedDiscount}%`,
           status: NegotiationStatus.OPEN,
@@ -134,7 +159,7 @@ export class NegotiationService {
       }
 
       // 6. Update Quotation header
-      const updatedQuote = await tx.quotation.update({
+      await tx.quotation.update({
         where: { id: quotationId },
         data: {
           status: nextStatus,
@@ -180,18 +205,24 @@ export class NegotiationService {
 
   /**
    * Customer confirms and accepts the quotation.
+   * customerId must come from the authenticated portal session — never from request body.
    * 1. Creates Order + immutable OrderItem snapshot (inside a single transaction)
    * 2. Stages ORDER_CONFIRMED outbox event
    * 3. Runs AllocationEngine (reads OrderItems, not live quotation)
    * 4. Runs BillingEngine (invoice + subscription schedules)
    */
-  static async confirmAndConvert(quotationId: string) {
+  static async confirmAndConvert(quotationId: string, customerId?: string) {
     const quote = await prisma.quotation.findUnique({
       where: { id: quotationId },
       include: { customer: true, items: { include: { product: true } } },
     });
 
     if (!quote) throw new Error('Quotation not found.');
+
+    // Verify portal customer owns this quotation (defence-in-depth — middleware already checks too)
+    if (customerId && quote.customerId !== customerId) {
+      throw new Error('Forbidden: This quotation does not belong to your account.');
+    }
 
     if (
       quote.status !== QuotationStatus.APPROVED &&

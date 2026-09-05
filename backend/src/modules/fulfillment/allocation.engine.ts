@@ -1,5 +1,6 @@
 import { prisma, TX_OPTIONS } from '../../core/config/db.js';
 import { FulfillmentStatus, OrderStatus, BackorderStatus } from '@prisma/client';
+import logger from '../../core/logger/structuredLogger.js';
 
 export interface SplitPlanItem {
   warehouseId: string;
@@ -142,11 +143,12 @@ export class AllocationEngine {
           });
         }
 
-        // Reserve stock in inventory
+        // Reserve stock in inventory — decrement availableQty AND increment reservedQty atomically
         await tx.inventory.updateMany({
           where: { warehouseId: split.warehouseId },
           data: {
-            reservedQty: { increment: split.allocatedQty },
+            availableQty: { decrement: split.allocatedQty },
+            reservedQty:  { increment: split.allocatedQty },
           },
         });
       }
@@ -182,6 +184,168 @@ export class AllocationEngine {
         plan,
       };
     }, TX_OPTIONS);
+  }
+
+  /**
+   * Mark a fulfillment as SHIPPED.
+   * Does NOT release reservedQty — stock stays reserved until delivered.
+   */
+  static async markShipped(fulfillmentId: string): Promise<void> {
+    await prisma.fulfillment.update({
+      where: { id: fulfillmentId },
+      data: { status: FulfillmentStatus.SHIPPED, shippedAt: new Date() },
+    });
+    await AllocationEngine._propagateOrderStatus(
+      (await prisma.fulfillment.findUnique({ where: { id: fulfillmentId }, select: { orderId: true } }))!.orderId
+    );
+  }
+
+  /**
+   * Mark a fulfillment as DELIVERED.
+   * Releases reservedQty (stock is now physically gone).
+   * Propagates Order status to FULFILLED if all fulfillments are done.
+   */
+  static async markDelivered(fulfillmentId: string): Promise<void> {
+    const fulfillment = await prisma.fulfillment.findUnique({
+      where: { id: fulfillmentId },
+      include: { items: true },
+    });
+    if (!fulfillment) throw new Error('Fulfillment not found.');
+
+    // Sum total quantity delivered from this fulfillment
+    const totalDeliveredQty = fulfillment.items.reduce((sum, fi) => sum + Number(fi.quantity), 0);
+
+    await prisma.$transaction(async (tx) => {
+      await tx.fulfillment.update({
+        where: { id: fulfillmentId },
+        data: { status: FulfillmentStatus.DELIVERED, deliveredAt: new Date() },
+      });
+
+      // Release reservedQty — stock is consumed
+      await tx.inventory.updateMany({
+        where: { warehouseId: fulfillment.warehouseId },
+        data: { reservedQty: { decrement: totalDeliveredQty } },
+      });
+    }, TX_OPTIONS);
+
+    await AllocationEngine._propagateOrderStatus(fulfillment.orderId);
+  }
+
+  /**
+   * Cancel a fulfillment before shipment.
+   * Releases both availableQty and reservedQty back to inventory.
+   */
+  static async cancelFulfillment(fulfillmentId: string): Promise<void> {
+    const fulfillment = await prisma.fulfillment.findUnique({
+      where: { id: fulfillmentId },
+      include: { items: true },
+    });
+    if (!fulfillment) throw new Error('Fulfillment not found.');
+    if (fulfillment.status === FulfillmentStatus.SHIPPED || fulfillment.status === FulfillmentStatus.DELIVERED) {
+      throw new Error('Cannot cancel a fulfillment that has already shipped or been delivered.');
+    }
+
+    const totalQty = fulfillment.items.reduce((sum, fi) => sum + Number(fi.quantity), 0);
+
+    await prisma.$transaction(async (tx) => {
+      await tx.fulfillment.update({
+        where: { id: fulfillmentId },
+        data: { status: FulfillmentStatus.CANCELLED },
+      });
+
+      // Release inventory — put stock back
+      await tx.inventory.updateMany({
+        where: { warehouseId: fulfillment.warehouseId },
+        data: {
+          availableQty: { increment: totalQty },
+          reservedQty:  { decrement: totalQty },
+        },
+      });
+    }, TX_OPTIONS);
+
+    await AllocationEngine._propagateOrderStatus(fulfillment.orderId);
+  }
+
+  /**
+   * Attempt to fill OPEN backorders using newly available inventory.
+   * Call this whenever inventory is restocked.
+   */
+  static async processBackorders(productId: string): Promise<void> {
+    const openBackorders = await prisma.backorder.findMany({
+      where: { productId, status: { in: [BackorderStatus.OPEN, BackorderStatus.PARTIALLY_FULFILLED] } },
+      orderBy: { createdAt: 'asc' }, // FIFO
+    });
+
+    for (const bo of openBackorders) {
+      const needed = Number(bo.quantity) - Number(bo.fulfilledQty);
+      if (needed <= 0) continue;
+
+      const inventories = await prisma.inventory.findMany({
+        where: { productId },
+        include: { warehouse: true },
+        orderBy: { warehouse: { shippingWeight: 'asc' } },
+      });
+
+      let remaining = needed;
+      for (const inv of inventories) {
+        if (remaining <= 0) break;
+        const available = Math.max(0, Number(inv.availableQty) - Number(inv.reservedQty));
+        if (available <= 0) continue;
+
+        const take = Math.min(remaining, available);
+        await prisma.$transaction(async (tx) => {
+          await tx.inventory.update({
+            where: { id: inv.id },
+            data: {
+              availableQty: { decrement: take },
+              reservedQty:  { increment: take },
+            },
+          });
+
+          const newFulfilled = Number(bo.fulfilledQty) + take;
+          const newStatus = newFulfilled >= Number(bo.quantity)
+            ? BackorderStatus.FULFILLED
+            : BackorderStatus.PARTIALLY_FULFILLED;
+
+          await tx.backorder.update({
+            where: { id: bo.id },
+            data: {
+              fulfilledQty: newFulfilled,
+              status: newStatus,
+              ...(newStatus === BackorderStatus.FULFILLED ? { fulfilledAt: new Date() } : {}),
+            },
+          });
+        }, TX_OPTIONS);
+
+        remaining -= take;
+        logger.info(`[Backorder] Fulfilled ${take} units of product ${productId} for backorder ${bo.id}`);
+      }
+    }
+  }
+
+  /**
+   * Derive and update Order.status from all its Fulfillments.
+   * PENDING_FULFILLMENT → PARTIALLY_FULFILLED → FULFILLED
+   */
+  static async _propagateOrderStatus(orderId: string): Promise<void> {
+    const fulfillments = await prisma.fulfillment.findMany({
+      where: { orderId },
+      select: { status: true },
+    });
+
+    const active = fulfillments.filter(f => f.status !== FulfillmentStatus.CANCELLED);
+    if (active.length === 0) return;
+
+    const allDelivered = active.every(f => f.status === FulfillmentStatus.DELIVERED);
+    const anyDelivered = active.some(f => f.status === FulfillmentStatus.DELIVERED);
+
+    const newStatus = allDelivered
+      ? OrderStatus.FULFILLED
+      : anyDelivered
+      ? OrderStatus.PARTIALLY_FULFILLED
+      : OrderStatus.PENDING_FULFILLMENT;
+
+    await prisma.order.update({ where: { id: orderId }, data: { status: newStatus } });
   }
 }
 
