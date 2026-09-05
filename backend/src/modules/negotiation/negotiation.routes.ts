@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { NegotiationController } from './negotiation.controller.js';
+import { CommentController } from '../quotations/comment.controller.js';
 import { authenticatePortal } from '../../core/auth/portal.middleware.js';
 
 const router = Router();
@@ -13,6 +14,13 @@ const router = Router();
 router.get('/quotations/:id',                authenticatePortal, NegotiationController.getRestrictedQuote);
 router.post('/quotations/:id/counter-offer', authenticatePortal, NegotiationController.submitCounterOffer);
 router.post('/quotations/:id/confirm',       authenticatePortal, NegotiationController.confirmAndConvert);
+
+// Customer can add comments to quotations (quote-level or line-level)
+router.post('/quotations/:id/comments',      authenticatePortal, CommentController.addComment);
+router.get('/quotations/:id/comments',       authenticatePortal, CommentController.getComments);
+
+// Customer self-service login using email
+router.post('/login', NegotiationController.portalLogin);
 
 // Portal token issuance (internal — requires employee JWT + ADMIN/SALES_MANAGER/OPERATIONS)
 router.post('/customers/:customerId/issue-token', NegotiationController.issuePortalToken);

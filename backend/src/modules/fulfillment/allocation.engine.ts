@@ -11,6 +11,12 @@ export interface SplitPlanItem {
   estimatedCost: number;
 }
 
+export interface ManualSplitInput {
+  productId: string;
+  warehouseId: string;
+  quantity: number;
+}
+
 export interface AllocationResult {
   orderId: string;
   splits: SplitPlanItem[];
@@ -346,6 +352,189 @@ export class AllocationEngine {
       : OrderStatus.PENDING_FULFILLMENT;
 
     await prisma.order.update({ where: { id: orderId }, data: { status: newStatus } });
+  }
+
+  /**
+   * MANUAL WAREHOUSE OVERRIDE
+   * Allow sales rep or operations to manually specify which warehouses to use.
+   * Validates stock availability before committing.
+   */
+  static async commitManualPlan(orderId: string, manualSplits: ManualSplitInput[]) {
+    // Load order and verify it exists
+    const order = await prisma.order.findUnique({
+      where: { id: orderId },
+      include: { items: { include: { product: true } }, fulfillments: true },
+    });
+
+    if (!order) throw new Error('Order not found.');
+
+    // Check if fulfillments already exist
+    if (order.fulfillments && order.fulfillments.length > 0) {
+      throw new Error(
+        'This order has already been allocated. Cancel existing fulfillments before applying manual override.'
+      );
+    }
+
+    // Validate manual splits
+    const splitsMap = new Map<string, SplitPlanItem>();
+    const productQtyMap = new Map<string, number>();
+
+    // Track required quantities per product
+    for (const item of order.items) {
+      if (!item.product.isRecurring) {
+        productQtyMap.set(item.productId, Number(item.quantity));
+      }
+    }
+
+    // Validate each manual split
+    for (const split of manualSplits) {
+      const requiredQty = productQtyMap.get(split.productId);
+      if (requiredQty === undefined) {
+        throw new Error(`Product ${split.productId} is not part of this order.`);
+      }
+
+      // Check warehouse has sufficient stock
+      const inventory = await prisma.inventory.findFirst({
+        where: {
+          productId: split.productId,
+          warehouseId: split.warehouseId,
+        },
+        include: { warehouse: true },
+      });
+
+      if (!inventory) {
+        throw new Error(`Product ${split.productId} not found in warehouse ${split.warehouseId}.`);
+      }
+
+      const effectiveAvailable = Math.max(0, Number(inventory.availableQty) - Number(inventory.reservedQty));
+      if (effectiveAvailable < split.quantity) {
+        throw new Error(
+          `Insufficient stock for product ${split.productId} in warehouse ${split.warehouseId}. ` +
+          `Available: ${effectiveAvailable}, Requested: ${split.quantity}`
+        );
+      }
+
+      const weight = Number(inventory.warehouse.shippingWeight);
+      const estimatedCost = Number((split.quantity * 250 * weight).toFixed(2));
+
+      const existing = splitsMap.get(split.warehouseId);
+      if (existing) {
+        existing.allocatedQty += split.quantity;
+        existing.estimatedCost += estimatedCost;
+      } else {
+        splitsMap.set(split.warehouseId, {
+          warehouseId: split.warehouseId,
+          warehouseName: inventory.warehouse.name,
+          location: inventory.warehouse.location,
+          shippingWeight: weight,
+          allocatedQty: split.quantity,
+          estimatedCost,
+        });
+      }
+
+      // Decrease required quantity
+      productQtyMap.set(split.productId, requiredQty - split.quantity);
+    }
+
+    // Check if all products are fully allocated
+    let totalBackordered = 0;
+    for (const [productId, remainingQty] of productQtyMap.entries()) {
+      if (remainingQty > 0) {
+        totalBackordered += remainingQty;
+      }
+    }
+
+    const splits = Array.from(splitsMap.values());
+    const totalEstimatedFreight = splits.reduce((sum, s) => sum + s.estimatedCost, 0);
+
+    const plan: AllocationResult = {
+      orderId,
+      splits,
+      backorderedQty: totalBackordered,
+      totalShipments: splits.length,
+      totalEstimatedFreight,
+      status:
+        totalBackordered === 0
+          ? 'FULLY_ALLOCATED'
+          : splits.length > 0
+          ? 'PARTIALLY_ALLOCATED'
+          : 'BACKORDER_REQUIRED',
+    };
+
+    // Commit the manual plan
+    const orderItems = await prisma.orderItem.findMany({ where: { orderId } });
+
+    return await prisma.$transaction(async (tx) => {
+      // Create Fulfillment records per warehouse split
+      for (let i = 0; i < plan.splits.length; i++) {
+        const split = plan.splits[i];
+        const shipmentNumber = `SHIP-${orderId.substring(0, 4)}-${i + 1}`;
+
+        const fulfillment = await tx.fulfillment.create({
+          data: {
+            orderId,
+            warehouseId: split.warehouseId,
+            status: FulfillmentStatus.ALLOCATED,
+            shipmentNumber,
+            estimatedCost: split.estimatedCost,
+          },
+        });
+
+        // Create FulfillmentItems
+        for (const orderItem of orderItems) {
+          await tx.fulfillmentItem.create({
+            data: {
+              fulfillmentId: fulfillment.id,
+              orderItemId: orderItem.id,
+              productId: orderItem.productId,
+              quantity: orderItem.quantity,
+            },
+          });
+        }
+
+        // Reserve stock
+        await tx.inventory.updateMany({
+          where: { warehouseId: split.warehouseId },
+          data: {
+            availableQty: { decrement: split.allocatedQty },
+            reservedQty: { increment: split.allocatedQty },
+          },
+        });
+      }
+
+      // Create backorder if needed
+      if (plan.backorderedQty > 0) {
+        const primaryItem = orderItems[0];
+        if (primaryItem) {
+          await tx.backorder.create({
+            data: {
+              orderId,
+              productId: primaryItem.productId,
+              quantity: plan.backorderedQty,
+              status: BackorderStatus.OPEN,
+            },
+          });
+        }
+      }
+
+      // Update order status
+      const updatedOrder = await tx.order.update({
+        where: { id: orderId },
+        data: {
+          status:
+            plan.backorderedQty === 0
+              ? OrderStatus.FULFILLED
+              : OrderStatus.PARTIALLY_FULFILLED,
+        },
+      });
+
+      logger.info(`[Manual Override] Order ${orderId} manually allocated across ${splits.length} warehouses`);
+
+      return {
+        order: updatedOrder,
+        plan,
+      };
+    }, TX_OPTIONS);
   }
 }
 

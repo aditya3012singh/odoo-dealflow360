@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { QuotationController } from './quotation.controller.js';
+import { CommentController } from './comment.controller.js';
 import { authenticateJWT } from '../../api/middleware/auth.middleware.js';
 import { authorizePermission } from '../../core/auth/rbac.middleware.js';
 import { Permission } from '../../core/auth/permissions.js';
@@ -21,5 +22,11 @@ router.delete('/:id/items/:itemId',   authenticateJWT, authorizePermission(Permi
 // ── Workflow actions ──────────────────────────────────────────────────────────
 router.post('/:id/submit',           authenticateJWT, authorizePermission(Permission.QUOTE_SUBMIT), QuotationController.submitQuotation);
 router.get('/:id/recommendations',   authenticateJWT, authorizePermission(Permission.QUOTE_READ),   QuotationController.getRecommendations);
+
+// ── Comments (Quote-level and Line-level) ─────────────────────────────────────
+router.post('/:id/comments',                 authenticateJWT, authorizePermission(Permission.QUOTE_READ), CommentController.addComment);
+router.get('/:id/comments',                  authenticateJWT, authorizePermission(Permission.QUOTE_READ), CommentController.getComments);
+router.get('/:id/items/:itemId/comments',    authenticateJWT, authorizePermission(Permission.QUOTE_READ), CommentController.getLineComments);
+router.delete('/comments/:commentId',        authenticateJWT, authorizePermission(Permission.QUOTE_UPDATE), CommentController.deleteComment);
 
 export default router;

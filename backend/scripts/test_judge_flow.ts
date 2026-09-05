@@ -3,7 +3,7 @@
  * Tests the entire business lifecycle end-to-end with proper JWT + portal token auth.
  */
 
-const BASE_URL = 'http://localhost:4000/api';
+const BASE_URL = 'http://localhost:5000/api';
 
 const c = {
   reset: '\x1b[0m', bright: '\x1b[1m', cyan: '\x1b[36m', green: '\x1b[32m',
