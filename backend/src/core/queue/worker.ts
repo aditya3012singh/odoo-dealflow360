@@ -121,6 +121,34 @@ const jobHandlers: Record<string, (data: any) => Promise<void>> = {
       }
     }
   },
+
+  // ── Write-Behind Inventory Stock Sync ──────────────────────────────────────
+  sync_inventory_stock: async (data) => {
+    const { warehouseId, productId, availableQty } = data;
+    if (!warehouseId || !productId || availableQty === undefined) {
+      logger.warn('[Worker] sync_inventory_stock: missing parameters');
+      return;
+    }
+    const { prisma } = await import('../config/db.js');
+    await prisma.inventory.upsert({
+      where: {
+        warehouseId_productId: {
+          warehouseId,
+          productId,
+        },
+      },
+      update: {
+        availableQty: Number(availableQty),
+      },
+      create: {
+        warehouseId,
+        productId,
+        availableQty: Number(availableQty),
+        reservedQty: 0,
+      },
+    });
+    logger.info(`[Worker] ✅ Write-behind synced inventory for warehouse ${warehouseId} product ${productId} -> ${availableQty} units`);
+  },
 };
 
 // ============================================================================

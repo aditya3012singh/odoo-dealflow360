@@ -14,11 +14,19 @@ import {
   AlertTriangle,
   ArrowRight,
   Server,
+  Clock,
+  FileText,
 } from 'lucide-react';
 import { StatCard } from '../../components/ui/StatCard';
 import { Badge } from '../../components/ui/Badge';
-import { StatCardSkeleton, TableRowSkeleton } from '../../components/ui/Skeleton';
-import { adminService, type AdminOverview, type AdminUser } from '../../services/admin.service';
+import { StatCardSkeleton, Skeleton } from '../../components/ui/Skeleton';
+import {
+  adminService,
+  type AdminOverview,
+  type AdminUser,
+  type SystemHealthData,
+  type RecentActivity,
+} from '../../services/admin.service';
 import { ROLE_COLORS, type Role } from '../../types';
 
 export function AdminDashboard() {
@@ -26,6 +34,8 @@ export function AdminDashboard() {
 
   const [overview, setOverview] = useState<AdminOverview | null>(null);
   const [users, setUsers] = useState<AdminUser[]>([]);
+  const [health, setHealth] = useState<SystemHealthData | null>(null);
+  const [recentActivities, setRecentActivities] = useState<RecentActivity[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -43,12 +53,16 @@ export function AdminDashboard() {
     try {
       setLoading(true);
       setError(null);
-      const [overData, usersData] = await Promise.all([
+      const [overData, usersData, healthData, activitiesData] = await Promise.all([
         adminService.getOverview().catch(() => null),
         adminService.listUsers().catch(() => []),
+        adminService.getSystemHealth().catch(() => null),
+        adminService.getRecentActivity().catch(() => []),
       ]);
       setOverview(overData);
       setUsers(usersData);
+      setHealth(healthData);
+      setRecentActivities(activitiesData);
     } catch (err: any) {
       console.error('Failed to load admin data:', err);
       setError(err.response?.data?.message || 'Failed to load admin overview');
@@ -95,7 +109,7 @@ export function AdminDashboard() {
   };
 
   return (
-    <div className="space-y-6 max-w-[1500px] mx-auto pb-12">
+    <div className="w-full space-y-6 pb-12">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
@@ -263,10 +277,19 @@ export function AdminDashboard() {
 
           <div className="p-4 flex-1 overflow-y-auto divide-y divide-slate-100 dark:divide-zinc-800/60">
             {loading ? (
-              <div className="space-y-3">
-                <TableRowSkeleton columns={2} />
-                <TableRowSkeleton columns={2} />
-                <TableRowSkeleton columns={2} />
+              <div className="space-y-2.5">
+                {Array.from({ length: 5 }).map((_, i) => (
+                  <div key={i} className="py-2 flex items-center justify-between">
+                    <div className="flex items-center gap-2.5">
+                      <Skeleton className="w-7 h-7 rounded-full shrink-0" />
+                      <div className="space-y-1">
+                        <Skeleton className="h-3 w-28 rounded" />
+                        <Skeleton className="h-2.5 w-36 rounded" />
+                      </div>
+                    </div>
+                    <Skeleton className="h-5 w-16 rounded" />
+                  </div>
+                ))}
               </div>
             ) : users.length === 0 ? (
               <div className="py-8 text-center text-xs text-slate-400 dark:text-zinc-500">
@@ -318,17 +341,40 @@ export function AdminDashboard() {
                 <Server className="w-4 h-4 text-emerald-500" />
                 Platform Telemetry & Health
               </h2>
+              <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-slate-100 dark:bg-zinc-800 text-slate-600 dark:text-zinc-400">
+                {health?.environment || 'dev'}
+              </span>
             </div>
             <p className="text-xs text-slate-400 dark:text-zinc-500">
-              Live service status and database connectivity
+              Live service status, database query latency, and memory footprint
             </p>
 
             <div className="mt-4 space-y-3">
               {[
-                { label: 'API Server', status: overview?.systemHealth.apiServer || 'Online', value: '45ms latency' },
-                { label: 'PostgreSQL DB', status: overview?.systemHealth.database || 'Connected', value: 'Prisma Client' },
-                { label: 'Cache Engine', status: 'Running', value: overview?.systemHealth.cacheHitRate || '98% hit rate' },
-                { label: 'Dual-Mode Event Bus', status: 'Active', value: overview?.systemHealth.eventBus || 'In-Memory / Redis' },
+                {
+                  label: 'API Server',
+                  status: health?.status === 'ok' ? 'Operational' : (overview?.systemHealth.apiServer || 'Online'),
+                  value: health ? `Node ${health.nodeVersion}` : 'Express v4',
+                  isGood: true,
+                },
+                {
+                  label: 'PostgreSQL DB',
+                  status: health?.database?.status === 'connected' ? 'Connected' : 'Active',
+                  value: health?.database?.latencyMs !== undefined ? `${health.database.latencyMs}ms query latency` : 'Prisma Client',
+                  isGood: true,
+                },
+                {
+                  label: 'Memory Footprint',
+                  status: health?.memory ? `${health.memory.rssMb} MB RSS` : 'Nominal',
+                  value: health?.memory ? `${health.memory.heapUsedMb} MB heap used` : (overview?.systemHealth.cacheHitRate || '98% hit rate'),
+                  isGood: true,
+                },
+                {
+                  label: 'Process Uptime',
+                  status: health?.uptimeSeconds ? `${Math.floor(health.uptimeSeconds / 60)}m ${Math.floor(health.uptimeSeconds % 60)}s` : 'Active',
+                  value: overview?.systemHealth.eventBus || 'Dual-Mode Event Bus',
+                  isGood: true,
+                },
               ].map((s) => (
                 <div
                   key={s.label}
@@ -354,7 +400,7 @@ export function AdminDashboard() {
               All Platform Services Operational ✓
             </p>
             <p className="text-emerald-600/80 dark:text-emerald-500/80 text-[10px] mt-0.5">
-              Live audit logging active
+              Live audit logging active & telemetry syncing
             </p>
           </div>
         </div>
@@ -382,6 +428,91 @@ export function AdminDashboard() {
               <span className="text-xs font-medium text-center">{a.label}</span>
             </button>
           ))}
+        </div>
+      </div>
+
+      {/* Recent Activity & Event Log */}
+      <div className="bg-white dark:bg-zinc-900 rounded-xl border border-slate-200 dark:border-zinc-800 p-5 shadow-sm space-y-4 transition-colors">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-sm font-semibold text-slate-900 dark:text-white flex items-center gap-2">
+              <Activity className="w-4 h-4 text-blue-500" />
+              Recent Platform Transactions & Activity Feed
+            </h2>
+            <p className="text-xs text-slate-400 dark:text-zinc-500 mt-0.5">
+              Live audit stream of quotations, booked orders, and team onboarding
+            </p>
+          </div>
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-900/50">
+            <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />
+            Live Sync
+          </span>
+        </div>
+
+        <div className="divide-y divide-slate-100 dark:divide-zinc-800/60">
+          {recentActivities.length === 0 ? (
+            <div className="py-6 text-center text-xs text-slate-400 dark:text-zinc-500">
+              No recent platform transactions recorded.
+            </div>
+          ) : (
+            recentActivities.map((act) => (
+              <div
+                key={act.id}
+                onClick={() => act.link && navigate(act.link)}
+                className={`py-3 flex items-center justify-between gap-4 ${
+                  act.link ? 'hover:bg-slate-50/60 dark:hover:bg-zinc-800/30 cursor-pointer rounded-lg px-2 -mx-2 transition' : ''
+                }`}
+              >
+                <div className="flex items-center gap-3 min-w-0">
+                  <div
+                    className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${
+                      act.type === 'QUOTATION'
+                        ? 'bg-blue-50 dark:bg-blue-950/50 text-blue-600 dark:text-blue-400 border border-blue-200/60 dark:border-blue-800/60'
+                        : act.type === 'ORDER'
+                        ? 'bg-amber-50 dark:bg-amber-950/50 text-amber-600 dark:text-amber-400 border border-amber-200/60 dark:border-amber-800/60'
+                        : 'bg-purple-50 dark:bg-purple-950/50 text-purple-600 dark:text-purple-400 border border-purple-200/60 dark:border-purple-800/60'
+                    }`}
+                  >
+                    {act.type === 'QUOTATION' ? (
+                      <FileText className="w-4 h-4" />
+                    ) : act.type === 'ORDER' ? (
+                      <Package className="w-4 h-4" />
+                    ) : (
+                      <Users className="w-4 h-4" />
+                    )}
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-xs font-semibold text-slate-900 dark:text-white truncate">
+                      {act.title}
+                    </p>
+                    <p className="text-[11px] text-slate-400 dark:text-zinc-500 truncate">
+                      {act.description}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-3 shrink-0 text-right">
+                  {act.status && (
+                    <Badge
+                      variant={
+                        ['CONFIRMED', 'ACTIVE', 'FULFILLED', 'APPROVED'].includes(act.status)
+                          ? 'success'
+                          : ['PENDING_MANAGER', 'PENDING_FINANCE', 'PENDING_FULFILLMENT'].includes(act.status)
+                          ? 'warning'
+                          : 'default'
+                      }
+                    >
+                      {act.status}
+                    </Badge>
+                  )}
+                  <span className="text-[11px] text-slate-400 dark:text-zinc-500 font-mono hidden sm:inline-block">
+                    {new Date(act.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  </span>
+                  {act.link && <ArrowRight className="w-3.5 h-3.5 text-slate-400" />}
+                </div>
+              </div>
+            ))
+          )}
         </div>
       </div>
 

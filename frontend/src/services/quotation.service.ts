@@ -82,4 +82,14 @@ export const quotationService = {
     const res = await api.post(`/quotations/${quotationId}/submit`);
     return res.data.data;
   },
+
+  async getComments(quotationId: string): Promise<any[]> {
+    const res = await api.get(`/quotations/${quotationId}/comments`);
+    return res.data.data;
+  },
+
+  async addComment(quotationId: string, comment: string): Promise<any> {
+    const res = await api.post(`/quotations/${quotationId}/comments`, { comment });
+    return res.data.data;
+  },
 };

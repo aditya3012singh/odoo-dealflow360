@@ -351,11 +351,26 @@ export class NegotiationController {
       const { QuotationService } = await import('../quotations/quotation.service.js');
       const finalizedQuote = await QuotationService.recalculateQuotation(quote.id);
 
-      // If customer requested a higher discount or if risk score > 0, set status to UNDER_NEGOTIATION
+      // If customer requested a higher discount or if risk score > 0, route for Manager/Finance approval
       let finalStatus: any = 'DRAFT';
-      if (Number(finalizedQuote.riskScore) > 0 || discountToApply > tierDiscount) {
-        finalStatus = 'UNDER_NEGOTIATION';
-        // Log negotiation request
+      const requiresApproval = Number(finalizedQuote.riskScore) > 0 || discountToApply > tierDiscount;
+
+      if (requiresApproval) {
+        const approvalLevel = (finalizedQuote as any).approvalLevel || 1;
+        finalStatus = approvalLevel === 1 ? 'PENDING_MANAGER' : 'PENDING_FINANCE';
+
+        // Create an active Approval ticket for the manager / finance queue
+        await prisma.approval.create({
+          data: {
+            quotationId: quote.id,
+            level: approvalLevel,
+            approverRole: approvalLevel === 1 ? 'SALES_MANAGER' : 'FINANCE',
+            status: 'PENDING',
+            reason: `Customer requested bulk discount (${discountToApply}% vs ${tierDiscount}% tier ceiling). Blended Risk: ${Number(finalizedQuote.riskScore).toFixed(1)}%. Note: ${notes || 'None provided'}`,
+          },
+        });
+
+        // Log negotiation request for audit history
         await prisma.negotiationRequest.create({
           data: {
             quotationId: quote.id,

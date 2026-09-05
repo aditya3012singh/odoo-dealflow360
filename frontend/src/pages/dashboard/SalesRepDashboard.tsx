@@ -19,12 +19,15 @@ import { quotationService } from '../../services/quotation.service';
 import type { Quotation, QuotationStatus, Product } from '../../types';
 
 const statusBadge: Record<QuotationStatus, { label: string; variant: 'default' | 'success' | 'warning' | 'danger' | 'info' | 'purple' }> = {
-  DRAFT:              { label: 'Draft',            variant: 'default' },
-  PENDING_MANAGER:    { label: 'Pending Approval', variant: 'warning' },
-  PENDING_FINANCE:    { label: 'Pending Finance',  variant: 'purple'  },
-  APPROVED:           { label: 'Approved',         variant: 'success' },
-  REJECTED:           { label: 'Rejected',         variant: 'danger'  },
-  CONVERTED_TO_ORDER: { label: 'Converted',        variant: 'info'    },
+  DRAFT:              { label: 'Draft',             variant: 'default' },
+  PENDING_MANAGER:    { label: 'Pending Approval',  variant: 'warning' },
+  PENDING_FINANCE:    { label: 'Pending Finance',   variant: 'purple'  },
+  APPROVED:           { label: 'Approved',          variant: 'success' },
+  REJECTED:           { label: 'Rejected',          variant: 'danger'  },
+  CONVERTED_TO_ORDER: { label: 'Converted',         variant: 'info'    },
+  SENT_TO_CUSTOMER:   { label: 'Sent to Customer',  variant: 'info'    },
+  UNDER_NEGOTIATION:  { label: 'Under Negotiation', variant: 'warning' },
+  EXPIRED:            { label: 'Expired',           variant: 'default' },
 };
 
 export function SalesRepDashboard() {
@@ -91,7 +94,7 @@ export function SalesRepDashboard() {
   const suggestedProducts = products.slice(0, 3);
 
   return (
-    <div className="space-y-6">
+    <div className="w-full space-y-6 pb-12">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>

@@ -2,6 +2,7 @@ export interface User {
   id: string;
   email: string;
   username: string;
+  name?: string;
   role: Role;
 }
 
@@ -151,10 +152,14 @@ export interface Quotation {
   costAmount?: number;
   marginAmount?: number;
   marginPercentage?: number;
+  blendedMarginPercentage?: number;
   riskScore: number;
   approvalLevel: number;
   items: QuotationItem[];
   approvals?: Approval[];
+  comments?: any[];
+  negotiations?: any[];
+  orderId?: string | null;
   createdAt: string;
   updatedAt: string;
   lastActivityAt?: string;

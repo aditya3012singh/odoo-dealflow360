@@ -23,10 +23,28 @@ api.interceptors.request.use(
 api.interceptors.response.use(
   (response) => response,
   async (error) => {
-    if (error.response?.status === 401) {
-      localStorage.removeItem('accessToken');
-      window.location.href = '/login';
+    const requestUrl = error.config?.url || '';
+
+    // Ignore 401 from login/register endpoints — let the login UI display the error message!
+    if (requestUrl.includes('/auth/login') || requestUrl.includes('/auth/register') || requestUrl.includes('/auth/refresh')) {
+      return Promise.reject(error);
     }
+
+    // Only redirect to login if the session token is truly expired or invalid on the core profile check
+    if (error.response?.status === 401) {
+      const message = String(error.response?.data?.message || '').toLowerCase();
+      const isTokenExpired = message.includes('expired') || message.includes('malformed') || message.includes('missing');
+      const isCoreAuth = requestUrl.includes('/auth/profile');
+
+      if (isTokenExpired || isCoreAuth) {
+        localStorage.removeItem('accessToken');
+        const currentPath = window.location.pathname;
+        if (currentPath !== '/workspace' && currentPath !== '/login' && currentPath !== '/portal/login') {
+          window.location.href = '/workspace';
+        }
+      }
+    }
+
     return Promise.reject(error);
   }
 );

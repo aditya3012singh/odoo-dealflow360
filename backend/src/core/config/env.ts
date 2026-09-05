@@ -28,7 +28,7 @@ const envSchema = z.object({
   // Auth
   JWT_ACCESS_SECRET: z.string().min(32, "JWT_ACCESS_SECRET must be at least 32 characters"),
   JWT_REFRESH_SECRET: z.string().min(32, "JWT_REFRESH_SECRET must be at least 32 characters"),
-  JWT_ACCESS_EXPIRES_IN: z.string().default("15m"),
+  JWT_ACCESS_EXPIRES_IN: z.string().default("7d"),
   JWT_REFRESH_EXPIRES_IN: z.string().default("7d"),
 
   // AWS/S3
@@ -58,6 +58,12 @@ const envSchema = z.object({
   GITHUB_CLIENT_ID: z.string().optional(),
   GITHUB_CLIENT_SECRET: z.string().optional(),
   GITHUB_CALLBACK_URL: z.string().optional(),
+
+  // Cloudinary
+  CLOUDINARY_CLOUD_NAME: z.string().default('dhndy2wl7'),
+  CLOUDINARY_API_KEY: z.string().default('734245242986747'),
+  CLOUDINARY_API_SECRET: z.string().default('zI-kFwIqQcYhhoSRvyMTY85HOHs'),
+  CLOUDINARY_URL: z.string().optional(),
 });
 
 export type EnvType = z.infer<typeof envSchema>;

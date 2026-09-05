@@ -140,7 +140,7 @@ export class ApprovalService {
       include: {
         quotation: {
           include: {
-            customer: true,
+            customer: { include: { customerTier: true } },
             salesRep: { select: { id: true, username: true, email: true } },
             items: { include: { product: true } },
           },

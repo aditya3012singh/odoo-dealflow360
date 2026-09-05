@@ -11,6 +11,7 @@ import {
   type AllocationPlan, type ManualSplitInput, type OrderItem,
 } from '../../services/fulfillment.service';
 import { Badge } from '../../components/ui/Badge';
+import { FulfillmentSkeleton } from '../../components/ui/Skeleton';
 
 // ──────────────────────────────────────────────────────────────
 // HELPERS
@@ -1070,6 +1071,11 @@ export function FulfillmentPage() {
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
 
+  // Render rich full-page skeleton on initial load
+  if (loading && warehouses.length === 0 && orders.length === 0) {
+    return <FulfillmentSkeleton />;
+  }
+
   // KPI calculations
   const pendingOrders = orders.filter(o => o.status === 'PENDING_FULFILLMENT').length;
   const activeShipments = orders.flatMap(o => o.fulfillments).filter(f => f.status === 'ALLOCATED' || f.status === 'SHIPPED').length;
@@ -1081,7 +1087,7 @@ export function FulfillmentPage() {
   const fulfillRate = totalFulfillments > 0 ? Math.round((deliveredCount / totalFulfillments) * 100) : 0;
 
   return (
-    <div className="space-y-6 max-w-[1600px] mx-auto pb-12">
+    <div className="w-full space-y-6 pb-12">
       {/* Page Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>

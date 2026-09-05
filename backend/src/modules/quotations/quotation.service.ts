@@ -393,6 +393,11 @@ export class QuotationService {
               OR: [
                 { quotationNumber: { contains: filters.search, mode: 'insensitive' } },
                 { customer: { companyName: { contains: filters.search, mode: 'insensitive' } } },
+                { customer: { name: { contains: filters.search, mode: 'insensitive' } } },
+                { customer: { email: { contains: filters.search, mode: 'insensitive' } } },
+                { salesRep: { username: { contains: filters.search, mode: 'insensitive' } } },
+                { items: { some: { product: { name: { contains: filters.search, mode: 'insensitive' } } } } },
+                { items: { some: { product: { sku: { contains: filters.search, mode: 'insensitive' } } } } },
               ],
             }
           : {}),

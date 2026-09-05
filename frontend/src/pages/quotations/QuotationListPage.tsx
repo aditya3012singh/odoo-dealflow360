@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Plus,
@@ -12,11 +12,14 @@ import {
   RefreshCw,
   Building2,
   Trash2,
+  DollarSign,
+  Clock,
+  CheckCircle,
 } from 'lucide-react';
 import { quotationService } from '../../services/quotation.service';
 import type { Quotation, QuotationStatus } from '../../types';
 import { Badge } from '../../components/ui/Badge';
-import { CardSkeleton } from '../../components/ui/Skeleton';
+import { StatCardSkeleton, QuotationCardSkeleton } from '../../components/ui/Skeleton';
 
 function getStepIndex(status: string): number {
   const s = (status || 'DRAFT').toUpperCase();
@@ -69,8 +72,11 @@ export function QuotationListPage() {
   };
 
   useEffect(() => {
-    fetchQuotations();
-  }, [statusFilter]);
+    const timer = setTimeout(() => {
+      fetchQuotations();
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [search, statusFilter]);
 
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -106,6 +112,8 @@ export function QuotationListPage() {
         return <Badge variant="warning">Pending Manager</Badge>;
       case 'PENDING_FINANCE':
         return <Badge variant="danger">Pending Finance</Badge>;
+      case 'UNDER_NEGOTIATION':
+        return <Badge variant="warning">Under Negotiation</Badge>;
       case 'APPROVED':
         return <Badge variant="success">Approved</Badge>;
       case 'CONVERTED_TO_ORDER':
@@ -117,8 +125,27 @@ export function QuotationListPage() {
     }
   };
 
+  const metrics = useMemo(() => {
+    const totalValue = quotations.reduce((acc, q) => acc + Number(q.totalAmount || 0), 0);
+    const pendingApprovals = quotations.filter((q) =>
+      ['PENDING_MANAGER', 'PENDING_FINANCE'].includes(q.status)
+    ).length;
+    const convertedCount = quotations.filter((q) =>
+      ['CONVERTED_TO_ORDER', 'APPROVED'].includes(q.status)
+    ).length;
+    const avgMargin =
+      quotations.length > 0
+        ? (
+            quotations.reduce((acc, q) => acc + Number(q.marginPercentage || 0), 0) /
+            quotations.length
+          ).toFixed(1)
+        : '0.0';
+
+    return { totalValue, pendingApprovals, convertedCount, avgMargin };
+  }, [quotations]);
+
   return (
-    <div className="space-y-6">
+    <div className="w-full space-y-6 pb-12">
       {/* Header bar */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
@@ -148,17 +175,93 @@ export function QuotationListPage() {
         </div>
       </div>
 
+      {/* KPI Pipeline Summary Strip */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        {loading ? (
+          <>
+            <StatCardSkeleton />
+            <StatCardSkeleton />
+            <StatCardSkeleton />
+            <StatCardSkeleton />
+          </>
+        ) : (
+          <>
+            <div className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-xl p-4 shadow-sm flex items-center justify-between">
+              <div>
+                <div className="text-xs text-slate-500 dark:text-zinc-400 font-medium">Pipeline Value</div>
+                <div className="text-xl font-bold font-mono text-slate-900 dark:text-white mt-1">
+                  ₹{metrics.totalValue.toLocaleString('en-IN')}
+                </div>
+                <div className="text-[11px] text-slate-400 dark:text-zinc-500 mt-0.5">Across {quotations.length} total deals</div>
+              </div>
+              <div className="w-10 h-10 rounded-xl bg-blue-50 dark:bg-blue-950/50 text-blue-600 dark:text-blue-400 flex items-center justify-center">
+                <DollarSign className="w-5 h-5" />
+              </div>
+            </div>
+
+            <div className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-xl p-4 shadow-sm flex items-center justify-between">
+              <div>
+                <div className="text-xs text-slate-500 dark:text-zinc-400 font-medium">Active Quotations</div>
+                <div className="text-xl font-bold text-slate-900 dark:text-white mt-1">
+                  {quotations.length}
+                </div>
+                <div className="text-[11px] text-slate-400 dark:text-zinc-500 mt-0.5">Live proposals in system</div>
+              </div>
+              <div className="w-10 h-10 rounded-xl bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400 flex items-center justify-center">
+                <FileText className="w-5 h-5" />
+              </div>
+            </div>
+
+            <div className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-xl p-4 shadow-sm flex items-center justify-between">
+              <div>
+                <div className="text-xs text-slate-500 dark:text-zinc-400 font-medium">Pending Approvals</div>
+                <div className="text-xl font-bold text-slate-900 dark:text-white mt-1">
+                  {metrics.pendingApprovals}
+                </div>
+                <div className="text-[11px] text-amber-600 dark:text-amber-400 font-medium mt-0.5">Manager & Finance queues</div>
+              </div>
+              <div className="w-10 h-10 rounded-xl bg-amber-50 dark:bg-amber-950/50 text-amber-600 dark:text-amber-400 flex items-center justify-center">
+                <Clock className="w-5 h-5" />
+              </div>
+            </div>
+
+            <div className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-xl p-4 shadow-sm flex items-center justify-between">
+              <div>
+                <div className="text-xs text-slate-500 dark:text-zinc-400 font-medium">Avg Deal Margin</div>
+                <div className="text-xl font-bold text-emerald-600 dark:text-emerald-400 mt-1">
+                  {metrics.avgMargin}%
+                </div>
+                <div className="text-[11px] text-slate-400 dark:text-zinc-500 mt-0.5">{metrics.convertedCount} approved/converted</div>
+              </div>
+              <div className="w-10 h-10 rounded-xl bg-emerald-50 dark:bg-emerald-950/50 text-emerald-600 dark:text-emerald-400 flex items-center justify-center">
+                <TrendingUp className="w-5 h-5" />
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+
       {/* Filter & Search Bar */}
       <div className="flex flex-col sm:flex-row items-center gap-3 bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-xl p-3">
         <form onSubmit={handleSearchSubmit} className="relative flex-1 w-full">
           <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-zinc-500" />
           <input
             type="text"
-            placeholder="Search quotation # or customer name..."
+            placeholder="Search quotation #, customer, email, sales rep, or product..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-full pl-9 pr-4 py-2 text-sm bg-slate-50 dark:bg-zinc-950/60 border border-slate-200 dark:border-zinc-800 rounded-lg text-slate-900 dark:text-zinc-100 placeholder-slate-400 dark:placeholder-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-400 dark:focus:ring-zinc-600"
+            className="w-full pl-9 pr-8 py-2 text-sm bg-slate-50 dark:bg-zinc-950/60 border border-slate-200 dark:border-zinc-800 rounded-lg text-slate-900 dark:text-zinc-100 placeholder-slate-400 dark:placeholder-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-400 dark:focus:ring-zinc-600"
           />
+          {search && (
+            <button
+              type="button"
+              onClick={() => setSearch('')}
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 dark:hover:text-white p-1 rounded-md text-xs cursor-pointer font-bold"
+              title="Clear search"
+            >
+              ✕
+            </button>
+          )}
         </form>
 
         <div className="flex items-center gap-2 w-full sm:w-auto">
@@ -170,6 +273,7 @@ export function QuotationListPage() {
           >
             <option value="ALL">All Statuses</option>
             <option value="DRAFT">Draft</option>
+            <option value="UNDER_NEGOTIATION">Under Negotiation</option>
             <option value="PENDING_MANAGER">Pending Manager</option>
             <option value="PENDING_FINANCE">Pending Finance</option>
             <option value="APPROVED">Approved</option>
@@ -179,6 +283,21 @@ export function QuotationListPage() {
         </div>
       </div>
 
+      {/* Live search indicator */}
+      {search.trim() && !loading && (
+        <div className="flex items-center justify-between text-xs text-slate-500 dark:text-zinc-400 px-1 animate-in fade-in">
+          <span>
+            Found <strong>{quotations.length}</strong> matching quotation{quotations.length !== 1 ? 's' : ''} for &quot;<strong>{search}</strong>&quot;
+          </span>
+          <button
+            onClick={() => setSearch('')}
+            className="text-indigo-600 dark:text-indigo-400 hover:underline font-semibold cursor-pointer"
+          >
+            Clear search
+          </button>
+        </div>
+      )}
+
       {/* Error state */}
       {error && (
         <div className="p-4 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900/50 rounded-xl flex items-center gap-3 text-red-700 dark:text-red-400 text-sm">
@@ -187,15 +306,12 @@ export function QuotationListPage() {
         </div>
       )}
 
-      {/* Loading state */}
+      {/* Loading state: 9 full-size realistic QuotationCardSkeletons covering the full viewport */}
       {loading ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          <CardSkeleton />
-          <CardSkeleton />
-          <CardSkeleton />
-          <CardSkeleton />
-          <CardSkeleton />
-          <CardSkeleton />
+          {Array.from({ length: 9 }).map((_, i) => (
+            <QuotationCardSkeleton key={i} />
+          ))}
         </div>
       ) : quotations.length === 0 ? (
         /* Empty State */
@@ -203,17 +319,30 @@ export function QuotationListPage() {
           <div className="w-12 h-12 rounded-full bg-slate-100 dark:bg-zinc-800 flex items-center justify-center mx-auto mb-4 text-slate-400 dark:text-zinc-400">
             <FileText className="w-6 h-6" />
           </div>
-          <h3 className="text-base font-semibold text-slate-900 dark:text-white">No quotations found</h3>
+          <h3 className="text-base font-semibold text-slate-900 dark:text-white">
+            {search.trim() ? `No quotations match "${search}"` : 'No quotations found'}
+          </h3>
           <p className="text-sm text-slate-500 dark:text-zinc-400 mt-1 max-w-sm mx-auto">
-            Get started by creating your first deal with automated risk calculation and live margin tracking.
+            {search.trim()
+              ? 'Try searching by quotation number (e.g. Q-2026-0001), customer company name, sales rep, or clear the search filter.'
+              : 'Get started by creating your first deal with automated risk calculation and live margin tracking.'}
           </p>
-          <button
-            onClick={() => navigate('/quotations/new')}
-            className="mt-5 inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg bg-zinc-900 hover:bg-zinc-800 text-white dark:bg-white dark:hover:bg-zinc-100 dark:text-zinc-900 transition-colors"
-          >
-            <Plus className="w-4 h-4" />
-            Create Quotation
-          </button>
+          {search.trim() ? (
+            <button
+              onClick={() => setSearch('')}
+              className="mt-4 px-4 py-2 text-xs font-semibold rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-slate-800 dark:text-zinc-200 cursor-pointer transition"
+            >
+              Reset Search Filter
+            </button>
+          ) : (
+            <button
+              onClick={() => navigate('/quotations/new')}
+              className="mt-5 inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg bg-zinc-900 hover:bg-zinc-800 text-white dark:bg-white dark:hover:bg-zinc-100 dark:text-zinc-900 transition-colors cursor-pointer"
+            >
+              <Plus className="w-4 h-4" />
+              Create Quotation
+            </button>
+          )}
         </div>
       ) : (
         /* Quotation Cards Grid */

@@ -61,6 +61,81 @@ class QueueService {
             throw error;
         }
     }
+
+    /**
+     * Enqueue write-behind inventory stock sync
+     */
+    static async enqueueStockSync(warehouseId: string, productId: string, availableQty: number): Promise<any> {
+        return this.addJob('sync_inventory_stock', { warehouseId, productId, availableQty });
+    }
+
+    /**
+     * Retrieve real-time BullMQ queue metrics and recent failed jobs
+     */
+    static async getMetrics(): Promise<any> {
+        const queue = this.getQueue();
+        if (!queue) {
+            return {
+                isHealthy: false,
+                queueName,
+                counts: { active: 0, completed: 0, failed: 0, delayed: 0, waiting: 0, paused: 0 },
+                failedJobs: [],
+                error: 'Queue connection is offline',
+            };
+        }
+
+        try {
+            const counts = await queue.getJobCounts('active', 'completed', 'failed', 'delayed', 'waiting', 'paused');
+            const failedRaw = await queue.getFailed(0, 10);
+            const failedJobs = failedRaw.map((job) => ({
+                id: job.id,
+                name: job.name,
+                data: job.data,
+                failedReason: job.failedReason,
+                timestamp: job.timestamp,
+                attemptsMade: job.attemptsMade,
+            }));
+
+            return {
+                isHealthy: true,
+                queueName,
+                counts,
+                failedJobs,
+            };
+        } catch (error: any) {
+            logger.error('[QueueService] Failed to fetch queue metrics:', error);
+            return {
+                isHealthy: false,
+                queueName,
+                counts: { active: 0, completed: 0, failed: 0, delayed: 0, waiting: 0, paused: 0 },
+                failedJobs: [],
+                error: error.message,
+            };
+        }
+    }
+
+    /**
+     * Re-enqueue failed jobs for execution
+     */
+    static async retryFailed(count: number = 20): Promise<{ retriedCount: number }> {
+        const queue = this.getQueue();
+        if (!queue) {
+            throw new Error('Queue connection is offline');
+        }
+
+        const failedJobs = await queue.getFailed(0, count);
+        let retriedCount = 0;
+        for (const job of failedJobs) {
+            try {
+                await job.retry();
+                retriedCount++;
+            } catch (err) {
+                logger.warn(`[QueueService] Failed to retry job ${job.id}:`, err);
+            }
+        }
+        return { retriedCount };
+    }
 }
 
 export default QueueService;
+

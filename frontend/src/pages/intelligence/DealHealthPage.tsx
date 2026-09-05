@@ -11,7 +11,7 @@ import {
   Check,
 } from 'lucide-react';
 import { intelligenceService, type DealAlert } from '../../services/intelligence.service';
-import { CardSkeleton } from '../../components/ui/Skeleton';
+import { CardSkeleton, DealHealthSkeleton } from '../../components/ui/Skeleton';
 
 export function DealHealthPage() {
   const navigate = useNavigate();
@@ -38,6 +38,16 @@ export function DealHealthPage() {
   useEffect(() => {
     fetchAlerts();
   }, []);
+
+  // Full-page skeleton on initial load
+  if (loading && alerts.length === 0) {
+    return <DealHealthSkeleton />;
+  }
+
+  const criticalCount = alerts.filter(a => a.severity === 'CRITICAL').length;
+  const warningCount = alerts.filter(a => a.severity === 'WARNING').length;
+  const openCount = alerts.filter(a => a.status === 'OPEN').length;
+  const totalCount = alerts.length;
 
   const handleRunScan = async () => {
     try {
@@ -87,7 +97,7 @@ export function DealHealthPage() {
   };
 
   return (
-    <div className="space-y-6 max-w-[1500px] mx-auto pb-12">
+    <div className="w-full space-y-6 pb-12">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
@@ -131,11 +141,36 @@ export function DealHealthPage() {
         </div>
       )}
 
+      {/* KPI Cards Grid */}
+      <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-xl p-5 shadow-sm space-y-2">
+          <p className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-zinc-400">Total Alerts</p>
+          <p className="text-2xl font-bold text-slate-900 dark:text-white tracking-tight">{totalCount}</p>
+          <p className="text-[11px] text-slate-400 dark:text-zinc-500">Pipeline active signals</p>
+        </div>
+        <div className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-xl p-5 shadow-sm space-y-2">
+          <p className="text-xs font-semibold uppercase tracking-wider text-rose-600 dark:text-rose-400">Critical Interventions</p>
+          <p className="text-2xl font-bold text-rose-600 dark:text-rose-400 tracking-tight">{criticalCount}</p>
+          <p className="text-[11px] text-slate-400 dark:text-zinc-500">Requires executive review</p>
+        </div>
+        <div className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-xl p-5 shadow-sm space-y-2">
+          <p className="text-xs font-semibold uppercase tracking-wider text-amber-600 dark:text-amber-400">Warning Anomalies</p>
+          <p className="text-2xl font-bold text-amber-600 dark:text-amber-400 tracking-tight">{warningCount}</p>
+          <p className="text-[11px] text-slate-400 dark:text-zinc-500">Margin or stall slippage</p>
+        </div>
+        <div className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-xl p-5 shadow-sm space-y-2">
+          <p className="text-xs font-semibold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">Actionable Open</p>
+          <p className="text-2xl font-bold text-emerald-600 dark:text-emerald-400 tracking-tight">{openCount}</p>
+          <p className="text-[11px] text-slate-400 dark:text-zinc-500">Pending resolution</p>
+        </div>
+      </div>
+
       {/* Alerts Listing */}
       {loading ? (
-        <div className="py-24 text-center text-slate-400 dark:text-zinc-500 flex flex-col items-center gap-3">
-          <RefreshCw className="w-7 h-7 animate-spin" />
-          <span className="text-sm">Scanning deal health indicators...</span>
+        <div className="space-y-3">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <CardSkeleton key={i} />
+          ))}
         </div>
       ) : alerts.length === 0 ? (
         <div className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-xl p-12 text-center">

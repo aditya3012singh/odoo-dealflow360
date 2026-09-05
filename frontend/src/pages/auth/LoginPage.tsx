@@ -35,7 +35,8 @@ export function LoginPage() {
   const location = useLocation();
   const { isLoading, error, isAuthenticated } = useAppSelector((state) => state.auth);
 
-  const from = (location.state as any)?.from?.pathname || '/dashboard';
+  const rawFrom = (location.state as any)?.from?.pathname;
+  const from = rawFrom && rawFrom !== '/workspace' && rawFrom !== '/login' ? rawFrom : '/dashboard';
 
   const {
     register,

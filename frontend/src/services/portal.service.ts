@@ -109,6 +109,9 @@ export interface PortalQuoteDetail {
     taxRate: number | string;
     lineTotal: number | string;
   }>;
+  orderId?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
   negotiations?: Array<{
     id: string;
     originalDiscount: number;

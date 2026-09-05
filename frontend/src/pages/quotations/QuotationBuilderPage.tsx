@@ -11,18 +11,29 @@ import {
   Building2,
   TrendingUp,
   ShieldAlert,
+  ShieldCheck,
   Layers,
   RefreshCw,
   FileCheck,
+  MessageSquare,
 } from 'lucide-react';
+import { useAppSelector } from '../../store/hooks';
 import { quotationService } from '../../services/quotation.service';
+import { approvalService } from '../../services/approval.service';
 import type { Customer, Product, Quotation, Recommendation } from '../../types';
-import { PageSkeleton } from '../../components/ui/Skeleton';
+import { QuotationBuilderSkeleton } from '../../components/ui/Skeleton';
 import { DealLifecycleStepper } from '../../components/common/DealLifecycleStepper';
+
+const APPROVAL_PRESETS = [
+  'Discount approved per strategic account volume commitment.',
+  'Authorized based on long-term client retention & renewal expansion.',
+  'Special executive commercial sign-off granted; healthy gross margin preserved.',
+];
 
 export function QuotationBuilderPage() {
   const { id } = useParams<{ id?: string }>();
   const navigate = useNavigate();
+  const currentUser = useAppSelector((state) => state.auth.user);
 
   // Core domain states
   const [quotation, setQuotation] = useState<Quotation | null>(null);
@@ -36,6 +47,17 @@ export function QuotationBuilderPage() {
   const [itemDrafts, setItemDrafts] = useState<
     Record<string, { quantity: number | string; discountPercentage: number | string }>
   >({});
+
+  // Discussion & Comments states
+  const [comments, setComments] = useState<any[]>([]);
+  const [commentText, setCommentText] = useState('');
+  const [postingComment, setPostingComment] = useState(false);
+
+  // Manager Approval Modal State
+  const [showApprovalModal, setShowApprovalModal] = useState(false);
+  const [approvalAction, setApprovalAction] = useState<'APPROVE' | 'REJECT'>('APPROVE');
+  const [approvalReason, setApprovalReason] = useState('');
+  const [processingApproval, setProcessingApproval] = useState(false);
 
   // Loading & notification states
   const [loading, setLoading] = useState(true);
@@ -87,9 +109,11 @@ export function QuotationBuilderPage() {
             setQuotation(q);
             setSelectedCustomerId(q.customerId);
             loadRecs(id);
+            fetchComments(id);
           }
         } else {
           setQuotation(null);
+          setComments([]);
           if (custData.length > 0 && !selectedCustomerId) {
             setSelectedCustomerId(custData[0].id);
           }
@@ -230,6 +254,55 @@ export function QuotationBuilderPage() {
     }
   };
 
+  // Helper to fetch comments
+  const fetchComments = async (quoteId: string) => {
+    try {
+      const data = await quotationService.getComments(quoteId);
+      setComments(data || []);
+    } catch (e) {
+      console.warn('Could not fetch comments:', e);
+    }
+  };
+
+  // Handler: Post comment to quotation
+  const handlePostComment = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!quotation || !commentText.trim()) return;
+    try {
+      setPostingComment(true);
+      await quotationService.addComment(quotation.id, commentText.trim());
+      setCommentText('');
+      await fetchComments(quotation.id);
+    } catch (err: any) {
+      setError(err?.response?.data?.message || 'Failed to post comment');
+    } finally {
+      setPostingComment(false);
+    }
+  };
+
+  // Handler: Manager process approval decision directly
+  const handleProcessApproval = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!activeApproval || !approvalReason.trim()) return;
+    try {
+      setProcessingApproval(true);
+      setError(null);
+      const res = await approvalService.processDecision(activeApproval.id, {
+        action: approvalAction,
+        reason: approvalReason.trim(),
+      });
+      setShowApprovalModal(false);
+      setSuccessMsg(res.message || `Quotation ${approvalAction.toLowerCase()}d successfully.`);
+      const refreshed = await quotationService.getQuotation(quotation!.id);
+      setQuotation(refreshed);
+    } catch (err: any) {
+      console.error('Decision failed:', err);
+      setError(err?.response?.data?.message || 'Failed to process decision');
+    } finally {
+      setProcessingApproval(false);
+    }
+  };
+
   // Handler: Delete entire quotation
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -324,14 +397,23 @@ export function QuotationBuilderPage() {
   });
 
   const categories = ['ALL', 'HARDWARE', 'SERVICES', 'SUBSCRIPTIONS'];
-  const isEditable = !quotation || quotation.status === 'DRAFT';
+
+  // Manager authorization rights
+  const canAuthorize =
+    currentUser?.role === 'SALES_MANAGER' || currentUser?.role === 'FINANCE' || currentUser?.role === 'ADMIN';
+
+  // Check for active pending approval
+  const activeApproval = quotation?.approvals?.find((a: any) => a.status === 'PENDING');
+
+  // Quotation is editable if in DRAFT or UNDER_NEGOTIATION
+  const isEditable = !quotation || quotation.status === 'DRAFT' || quotation.status === 'UNDER_NEGOTIATION';
 
   if (loading) {
-    return <PageSkeleton />;
+    return <QuotationBuilderSkeleton />;
   }
 
   return (
-    <div className="space-y-6 max-w-[1600px] mx-auto pb-16">
+    <div className="w-full space-y-6 pb-12">
       {/* Top Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 dark:border-zinc-800 pb-4">
         <div className="flex items-center gap-3">
@@ -364,25 +446,55 @@ export function QuotationBuilderPage() {
             <button
               onClick={() => setShowDeleteModal(true)}
               disabled={actionLoading || submitting}
-              className="inline-flex items-center gap-2 px-3.5 py-2 text-sm font-medium rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 dark:bg-rose-950/40 dark:hover:bg-rose-900/60 dark:text-rose-400 transition-colors"
+              className="inline-flex items-center gap-2 px-3.5 py-2 text-sm font-medium rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 dark:bg-rose-950/40 dark:hover:bg-rose-900/60 dark:text-rose-400 transition-colors cursor-pointer"
             >
               <Trash2 className="w-4 h-4" />
               Delete Quotation
             </button>
           )}
 
+          {canAuthorize && activeApproval && (
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => {
+                  setApprovalAction('REJECT');
+                  setApprovalReason('Discount exceeds corporate margin tolerance.');
+                  setShowApprovalModal(true);
+                }}
+                disabled={processingApproval || actionLoading}
+                className="px-3.5 py-2 text-xs font-semibold rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 dark:bg-rose-950/40 dark:hover:bg-rose-900/60 dark:text-rose-400 transition cursor-pointer"
+              >
+                Reject Deal
+              </button>
+              <button
+                onClick={() => {
+                  setApprovalAction('APPROVE');
+                  setApprovalReason(APPROVAL_PRESETS[0]);
+                  setShowApprovalModal(true);
+                }}
+                disabled={processingApproval || actionLoading}
+                className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-bold rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm transition cursor-pointer"
+              >
+                <ShieldCheck className="w-4 h-4" />
+                <span>Authorize Sign-off</span>
+              </button>
+            </div>
+          )}
+
           {quotation && isEditable && (
             <button
               onClick={handleSubmitQuotation}
               disabled={submitting || actionLoading || quotation.items.length === 0}
-              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg bg-zinc-900 hover:bg-zinc-800 text-white dark:bg-white dark:hover:bg-zinc-100 dark:text-zinc-900 shadow-sm transition-colors disabled:opacity-50"
+              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg bg-zinc-900 hover:bg-zinc-800 text-white dark:bg-white dark:hover:bg-zinc-100 dark:text-zinc-900 shadow-sm transition-colors disabled:opacity-50 cursor-pointer"
             >
               {submitting ? (
                 <RefreshCw className="w-4 h-4 animate-spin" />
               ) : (
                 <Send className="w-4 h-4" />
               )}
-              Submit for Approval
+              {quotation.status === 'UNDER_NEGOTIATION'
+                ? 'Submit for Manager Sign-off'
+                : 'Submit for Approval'}
             </button>
           )}
         </div>
@@ -417,6 +529,50 @@ export function QuotationBuilderPage() {
           createdAt={quotation.createdAt}
           updatedAt={quotation.updatedAt}
         />
+      )}
+
+      {/* Customer Counter-Proposal Banner */}
+      {quotation && quotation.status === 'UNDER_NEGOTIATION' && (
+        <div className="p-4 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-amber-900 dark:text-amber-300 animate-in fade-in">
+          <div className="flex items-start gap-2.5">
+            <MessageSquare className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+            <div>
+              <p className="font-bold text-sm">Customer Counter-Proposal Active</p>
+              <p className="text-amber-800 dark:text-amber-400 mt-0.5">
+                The client requested custom terms on this deal. Review requested line item discounts, margin impacts, or submit for governance review.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Escalation Pending Banner */}
+      {quotation && (quotation.status === 'PENDING_MANAGER' || quotation.status === 'PENDING_FINANCE') && (
+        <div className="p-4 rounded-xl bg-purple-50 dark:bg-purple-950/40 border border-purple-200 dark:border-purple-800/60 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-purple-900 dark:text-purple-300 animate-in fade-in">
+          <div className="flex items-start gap-2.5">
+            <ShieldAlert className="w-5 h-5 text-purple-600 shrink-0 mt-0.5" />
+            <div>
+              <p className="font-bold text-sm">
+                {quotation.status === 'PENDING_MANAGER' ? 'Awaiting Level 1 Sign-off (Sales Operations)' : 'Awaiting Level 2 Escalation (Finance Controller)'}
+              </p>
+              <p className="text-purple-800 dark:text-purple-400 mt-0.5">
+                This deal has exceeded the standard category discount limit and requires formal authorization before order confirmation.
+              </p>
+            </div>
+          </div>
+          {canAuthorize && activeApproval && (
+            <button
+              onClick={() => {
+                setApprovalAction('APPROVE');
+                setApprovalReason(APPROVAL_PRESETS[0]);
+                setShowApprovalModal(true);
+              }}
+              className="px-4 py-2 rounded-lg text-xs font-bold bg-purple-900 text-white hover:bg-purple-800 dark:bg-white dark:text-black transition shadow-sm cursor-pointer whitespace-nowrap"
+            >
+              Sign-off Now
+            </button>
+          )}
+        </div>
       )}
 
       {/* Customer & Governance Context Card */}
@@ -537,12 +693,16 @@ export function QuotationBuilderPage() {
                         <tr key={item.id} className="hover:bg-slate-50/60 dark:hover:bg-zinc-800/30 transition-colors">
                           <td className="py-3.5 px-4 font-medium text-slate-900 dark:text-white">
                             <div className="flex items-center gap-3">
-                              {item.product?.imageUrl && (
+                              {item.product?.imageUrl ? (
                                 <img
                                   src={item.product.imageUrl}
                                   alt={item.product.name}
                                   className="w-10 h-10 rounded-lg object-cover border border-slate-200 dark:border-zinc-700 shrink-0"
                                 />
+                              ) : (
+                                <div className="w-10 h-10 rounded-lg bg-slate-100 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 flex items-center justify-center text-slate-400 shrink-0">
+                                  <Layers className="w-4 h-4" />
+                                </div>
                               )}
                               <div>
                                 <div>{item.product?.name}</div>
@@ -725,12 +885,16 @@ export function QuotationBuilderPage() {
                     className="border border-slate-200 dark:border-zinc-800 hover:border-slate-300 dark:hover:border-zinc-700 rounded-lg p-3.5 flex items-center justify-between gap-3 transition-all group"
                   >
                     <div className="flex items-center gap-3 min-w-0">
-                      {prod.imageUrl && (
+                      {prod.imageUrl ? (
                         <img
                           src={prod.imageUrl}
                           alt={prod.name}
                           className="w-12 h-12 rounded-lg object-cover border border-slate-200 dark:border-zinc-700 shrink-0"
                         />
+                      ) : (
+                        <div className="w-12 h-12 rounded-lg bg-slate-100 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 flex items-center justify-center text-slate-400 shrink-0">
+                          <Layers className="w-5 h-5" />
+                        </div>
                       )}
                       <div className="min-w-0">
                         <div className="text-xs font-semibold text-slate-900 dark:text-white truncate">
@@ -757,6 +921,84 @@ export function QuotationBuilderPage() {
                   </div>
                 ))}
               </div>
+            </div>
+          )}
+
+          {/* Discussion & Client Messages Panel */}
+          {quotation && (
+            <div className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-xl p-5 shadow-sm space-y-4">
+              <div className="flex items-center justify-between border-b border-slate-100 dark:border-zinc-800/80 pb-3">
+                <div className="flex items-center gap-2">
+                  <MessageSquare className="w-4 h-4 text-indigo-500" />
+                  <h3 className="text-sm font-semibold text-slate-900 dark:text-white">
+                    Commercial Discussion & Client Messages
+                  </h3>
+                </div>
+                <span className="text-[11px] font-medium text-slate-400">
+                  {comments.length} message{comments.length !== 1 ? 's' : ''}
+                </span>
+              </div>
+
+              {/* Messages list */}
+              <div className="space-y-3 max-h-56 overflow-y-auto pr-1">
+                {comments.length === 0 ? (
+                  <p className="text-xs text-slate-400 dark:text-zinc-500 py-3 text-center">
+                    No negotiation notes yet. Messages posted here are visible in the Customer Portal.
+                  </p>
+                ) : (
+                  comments.map((c: any) => {
+                    const isClient = c.authorRole === 'CUSTOMER' || !c.authorRole;
+                    return (
+                      <div
+                        key={c.id}
+                        className={`p-3 rounded-xl text-xs space-y-1 ${
+                          isClient
+                            ? 'bg-amber-50/70 dark:bg-amber-950/30 border border-amber-200/60 dark:border-amber-900/40 text-slate-800 dark:text-zinc-200 ml-4'
+                            : 'bg-slate-50 dark:bg-zinc-950/50 border border-slate-200/60 dark:border-zinc-800/60 text-slate-800 dark:text-zinc-200 mr-4'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between text-[11px]">
+                          <span className="font-semibold flex items-center gap-1.5">
+                            <span
+                              className={`px-1.5 py-0.2 rounded text-[10px] font-bold ${
+                                isClient
+                                  ? 'bg-amber-200 text-amber-900 dark:bg-amber-900/60 dark:text-amber-200'
+                                  : 'bg-slate-200 text-slate-800 dark:bg-zinc-800 dark:text-zinc-200'
+                              }`}
+                            >
+                              {isClient ? 'Client' : 'Internal Rep'}
+                            </span>
+                            <span>{c.authorName || (isClient ? 'Customer' : 'Sales Team')}</span>
+                          </span>
+                          <span className="text-slate-400 dark:text-zinc-500">
+                            {new Date(c.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                        </div>
+                        <p className="text-xs leading-relaxed">{c.comment || c.message}</p>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+
+              {/* Add comment form */}
+              <form onSubmit={handlePostComment} className="flex gap-2 pt-2 border-t border-slate-100 dark:border-zinc-800">
+                <input
+                  type="text"
+                  value={commentText}
+                  onChange={(e) => setCommentText(e.target.value)}
+                  placeholder="Post negotiation note or respond to client..."
+                  disabled={postingComment}
+                  className="flex-1 px-3 py-2 text-xs bg-slate-50 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-lg text-slate-900 dark:text-zinc-100 focus:outline-none focus:ring-1 focus:ring-slate-400"
+                />
+                <button
+                  type="submit"
+                  disabled={postingComment || !commentText.trim()}
+                  className="px-4 py-2 text-xs font-semibold rounded-lg bg-slate-900 text-white hover:bg-black dark:bg-white dark:text-black dark:hover:bg-zinc-200 transition cursor-pointer disabled:opacity-50"
+                >
+                  {postingComment ? 'Posting...' : 'Reply'}
+                </button>
+              </form>
             </div>
           )}
         </div>
@@ -948,6 +1190,100 @@ export function QuotationBuilderPage() {
                 )}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Manager Decision Modal */}
+      {showApprovalModal && activeApproval && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 dark:border-zinc-800 pb-3">
+              <div>
+                <h3 className="text-base font-bold text-slate-900 dark:text-white">
+                  {approvalAction === 'APPROVE' ? 'Authorize Quotation Sign-off' : 'Reject Quotation'}
+                </h3>
+                <p className="text-xs text-slate-400 font-mono">
+                  {quotation?.quotationNumber} • Account: {currentCustomer?.companyName}
+                </p>
+              </div>
+              <span
+                className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${
+                  approvalAction === 'APPROVE'
+                    ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300'
+                    : 'bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300'
+                }`}
+              >
+                {approvalAction}
+              </span>
+            </div>
+
+            <p className="text-xs text-slate-500 dark:text-zinc-400">
+              {approvalAction === 'APPROVE'
+                ? 'Approving will immediately update the quotation to APPROVED and notify the customer in their portal so they can confirm fulfillment.'
+                : 'Rejecting will flag the deal as rejected and halt order conversion.'}
+            </p>
+
+            {/* Quick Compliance Presets */}
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 dark:text-zinc-300 mb-1.5">
+                Quick Compliance Presets
+              </label>
+              <div className="space-y-1.5">
+                {APPROVAL_PRESETS.map((p, idx) => (
+                  <button
+                    key={idx}
+                    type="button"
+                    onClick={() => setApprovalReason(p)}
+                    className={`w-full text-left p-2 rounded-lg text-xs border transition-colors cursor-pointer ${
+                      approvalReason === p
+                        ? 'border-slate-900 bg-slate-50 dark:border-white dark:bg-zinc-800 font-semibold text-slate-900 dark:text-white'
+                        : 'border-slate-200 dark:border-zinc-800 text-slate-600 dark:text-zinc-400 hover:bg-slate-50 dark:hover:bg-zinc-800/50'
+                    }`}
+                  >
+                    "{p}"
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <form onSubmit={handleProcessApproval} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-zinc-300 mb-1.5">
+                  Audit Rationale Note (Mandatory)
+                </label>
+                <textarea
+                  rows={3}
+                  value={approvalReason}
+                  onChange={(e) => setApprovalReason(e.target.value)}
+                  placeholder="Explain commercial sign-off reason..."
+                  className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-xl text-slate-900 dark:text-zinc-100 focus:outline-none focus:ring-1 focus:ring-slate-400"
+                  required
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-slate-100 dark:border-zinc-800">
+                <button
+                  type="button"
+                  onClick={() => setShowApprovalModal(false)}
+                  disabled={processingApproval}
+                  className="px-4 py-2 text-xs font-semibold rounded-xl border border-slate-200 dark:border-zinc-800 hover:bg-slate-100 dark:hover:bg-zinc-800 text-slate-700 dark:text-zinc-300 cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={processingApproval || !approvalReason.trim()}
+                  className={`px-5 py-2 text-xs font-bold rounded-xl text-white transition-colors cursor-pointer disabled:opacity-50 ${
+                    approvalAction === 'APPROVE'
+                      ? 'bg-slate-900 hover:bg-black dark:bg-white dark:text-black dark:hover:bg-zinc-200'
+                      : 'bg-rose-600 hover:bg-rose-700'
+                  }`}
+                >
+                  {processingApproval ? 'Signing off...' : `Confirm ${approvalAction === 'APPROVE' ? 'Authorization' : 'Rejection'}`}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

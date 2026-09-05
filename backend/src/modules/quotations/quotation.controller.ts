@@ -191,11 +191,14 @@ export class QuotationController {
 
   static async listProducts(req: TracedRequest, res: FormattedResponse, next: NextFunction) {
     try {
-      const products = await prisma.product.findMany({
-        where: { isActive: true },
-        include: { category: true, variants: true },
-        orderBy: { name: 'asc' },
-      });
+      const { AdminCacheService } = await import('../../core/cache/adminCache.service.js');
+      const products = await AdminCacheService.getOrSet('catalog:products', async () => {
+        return prisma.product.findMany({
+          where: { isActive: true },
+          include: { category: true, variants: true },
+          orderBy: { name: 'asc' },
+        });
+      }, 300); // 5 minutes TTL
       return res.ok ? res.ok(products, 'Products retrieved') : res.json({ success: true, data: products });
     } catch (err) {
       next(err);
