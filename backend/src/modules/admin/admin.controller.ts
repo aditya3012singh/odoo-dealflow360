@@ -563,18 +563,23 @@ export class AdminController {
    */
   static async getSystemHealth(req: TracedRequest, res: FormattedResponse, next: NextFunction) {
     try {
+      // Always measure live DB latency (cheap single-row ping)
       const startTime = Date.now();
       await prisma.$queryRaw`SELECT 1`;
       const dbLatencyMs = Date.now() - startTime;
 
-      const memoryUsage = process.memoryUsage();
+      // Cache the expensive count queries for 20s — they don't need to be real-time
+      const counts = await AdminCacheService.getOrSet('admin:health-counts', async () => {
+        const [userCount, productCount, quoteCount, orderCount] = await Promise.all([
+          prisma.user.count(),
+          prisma.product.count(),
+          prisma.quotation.count(),
+          prisma.order.count(),
+        ]);
+        return { users: userCount, products: productCount, quotations: quoteCount, orders: orderCount };
+      }, 20); // Cache for 20s
 
-      const [userCount, productCount, quoteCount, orderCount] = await Promise.all([
-        prisma.user.count(),
-        prisma.product.count(),
-        prisma.quotation.count(),
-        prisma.order.count(),
-      ]);
+      const memoryUsage = process.memoryUsage();
 
       const health = {
         status: 'healthy',
@@ -583,12 +588,7 @@ export class AdminController {
         database: {
           status: 'connected',
           latencyMs: dbLatencyMs,
-          counts: {
-            users: userCount,
-            products: productCount,
-            quotations: quoteCount,
-            orders: orderCount,
-          },
+          counts,
         },
         memory: {
           rssMb: Math.round(memoryUsage.rss / 1024 / 1024),

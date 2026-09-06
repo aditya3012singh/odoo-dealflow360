@@ -59,22 +59,29 @@ export function AdminDashboard() {
     try {
       setLoading(true);
       setError(null);
-      const [overData, usersData, healthData, activitiesData, queueData] = await Promise.all([
+
+      // Phase 1: Fast data — both are cached, resolve in <100ms on warm cache
+      const [overData, usersData] = await Promise.all([
         adminService.getOverview().catch(() => null),
         adminService.listUsers().catch(() => []),
-        adminService.getSystemHealth().catch(() => null),
-        adminService.getRecentActivity().catch(() => []),
-        adminService.getQueueMetrics().catch(() => null),
       ]);
       setOverview(overData);
       setUsers(usersData);
-      setHealth(healthData);
-      setRecentActivities(activitiesData);
-      setQueueMetrics(queueData);
+      setLoading(false); // Unblock the UI immediately after fast data
+
+      // Phase 2: Secondary telemetry — load in background, don't block render
+      Promise.all([
+        adminService.getSystemHealth().catch(() => null),
+        adminService.getRecentActivity().catch(() => []),
+        adminService.getQueueMetrics().catch(() => null),
+      ]).then(([healthData, activitiesData, queueData]) => {
+        setHealth(healthData);
+        setRecentActivities(activitiesData);
+        setQueueMetrics(queueData);
+      });
     } catch (err: any) {
       console.error('Failed to load admin data:', err);
       setError(err.response?.data?.message || 'Failed to load admin overview');
-    } finally {
       setLoading(false);
     }
   };
