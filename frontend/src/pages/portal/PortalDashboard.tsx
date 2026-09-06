@@ -698,13 +698,24 @@ export function PortalDashboard() {
           )}
 
           {/* Active Deal Milestone Journey */}
-          {!loading && (readyQuote || data?.quotations?.[0]) && (
-            <DealLifecycleStepper
-              status={(readyQuote || data?.quotations?.[0])!.status}
-              quotationNumber={(readyQuote || data?.quotations?.[0])!.quotationNumber}
-              updatedAt={(readyQuote || data?.quotations?.[0])!.updatedAt}
-            />
-          )}
+          {!loading && (readyQuote || data?.quotations?.[0]) && (() => {
+            const activeQ = readyQuote || data?.quotations?.[0];
+            const matchingOrder = activeQ ? (orders.find((o: any) => o.quotationId === activeQ.id) || (activeQ as any).order) : null;
+            let stepperStatus = activeQ?.status || 'DRAFT';
+            if (matchingOrder) {
+              if (matchingOrder.status === 'FULFILLED') stepperStatus = 'DELIVERED';
+              else if (matchingOrder.status === 'PARTIALLY_FULFILLED') stepperStatus = 'PARTIALLY_FULFILLED';
+              else if (matchingOrder.status === 'PENDING_FULFILLMENT') stepperStatus = 'CONVERTED_TO_ORDER';
+            }
+            return (
+              <DealLifecycleStepper
+                status={stepperStatus}
+                quotationNumber={activeQ!.quotationNumber}
+                orderNumber={matchingOrder?.orderNumber}
+                updatedAt={activeQ!.updatedAt}
+              />
+            );
+          })()}
 
           <div className="grid grid-cols-1 lg:grid-cols-3 xl:grid-cols-4 gap-6">
             {/* Quotation cards */}
@@ -734,11 +745,19 @@ export function PortalDashboard() {
                 </div>
               ) : (
                 data.quotations.map((q) => {
-                  const cfg = statusConfig[q.status] ?? {
+                  const matchingOrder = orders.find((o: any) => o.quotationId === q.id) || (q as any).order;
+                  let cfg = statusConfig[q.status] ?? {
                     label: q.status,
                     variant: 'default',
                     action: 'View',
                   };
+                  if (matchingOrder) {
+                    if (matchingOrder.status === 'FULFILLED') {
+                      cfg = { label: 'Order Delivered ✓', variant: 'success', action: 'Track Order' };
+                    } else if (matchingOrder.status === 'PARTIALLY_FULFILLED') {
+                      cfg = { label: 'Partially Fulfilled', variant: 'warning', action: 'Track Order' };
+                    }
+                  }
                   return (
                     <div
                       key={q.id}
@@ -747,11 +766,16 @@ export function PortalDashboard() {
                     >
                       <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
                         <div>
-                          <div className="flex items-center gap-2 mb-1.5">
+                          <div className="flex items-center gap-2 mb-1.5 flex-wrap">
                             <span className="font-mono text-slate-700 dark:text-zinc-300 font-semibold text-xs">
                               {q.quotationNumber}
                             </span>
                             <Badge variant={cfg.variant}>{cfg.label}</Badge>
+                            {matchingOrder && (
+                              <span className="text-[11px] font-mono text-purple-600 dark:text-purple-400 font-medium">
+                                #{matchingOrder.orderNumber}
+                              </span>
+                            )}
                           </div>
                           <p className="text-xl font-bold text-slate-900 dark:text-white tracking-tight mb-1">
                             {formatINR(q.totalAmount)}
@@ -766,13 +790,19 @@ export function PortalDashboard() {
 
                         <button
                           className={`self-start sm:self-auto flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-medium transition cursor-pointer shrink-0 ${
-                            q.status === 'APPROVED'
+                            cfg.variant === 'success'
+                              ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                              : q.status === 'APPROVED'
                               ? 'bg-slate-900 dark:bg-white text-white dark:text-black hover:bg-black dark:hover:bg-zinc-200'
                               : 'border border-slate-200 dark:border-zinc-800 hover:bg-slate-50 dark:hover:bg-zinc-800 text-slate-700 dark:text-zinc-300'
                           }`}
                           onClick={(e) => {
                             e.stopPropagation();
-                            navigate(`/portal/quotations/${q.id}`);
+                            if (matchingOrder) {
+                              setActiveTab('orders');
+                            } else {
+                              navigate(`/portal/quotations/${q.id}`);
+                            }
                           }}
                         >
                           {cfg.action} <ArrowRight className="w-3 h-3" />

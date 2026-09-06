@@ -35,6 +35,22 @@ export class NegotiationService {
           },
         },
         negotiations: { orderBy: { createdAt: 'desc' }, take: 5 },
+        order: {
+          select: {
+            id: true,
+            orderNumber: true,
+            status: true,
+            fulfillments: {
+              select: {
+                id: true,
+                shipmentNumber: true,
+                status: true,
+                shippedAt: true,
+                deliveredAt: true,
+              },
+            },
+          },
+        },
       },
     });
 

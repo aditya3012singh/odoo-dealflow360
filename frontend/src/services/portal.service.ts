@@ -134,6 +134,18 @@ export interface PortalQuoteDetail {
     lineTotal: number | string;
   }>;
   orderId?: string | null;
+  order?: {
+    id: string;
+    orderNumber: string;
+    status: string;
+    fulfillments?: Array<{
+      id: string;
+      shipmentNumber: string;
+      status: string;
+      shippedAt?: string | null;
+      deliveredAt?: string | null;
+    }>;
+  } | null;
   createdAt?: string;
   updatedAt?: string;
   negotiations?: Array<{

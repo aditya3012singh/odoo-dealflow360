@@ -122,6 +122,7 @@ export class NegotiationController {
           },
           salesRep: { select: { username: true, email: true } },
           negotiations: { orderBy: { createdAt: 'desc' }, take: 1 },
+          order: { select: { id: true, orderNumber: true, status: true } },
         },
         orderBy: { updatedAt: 'desc' },
       });
@@ -163,12 +164,21 @@ export class NegotiationController {
             quotationId: q.id,
           });
         } else if (q.status === 'CONVERTED_TO_ORDER') {
-          recentActivity.push({
-            icon: '📦',
-            text: `Quotation ${q.quotationNumber} converted to Order. Fulfillment initiated.`,
-            time: new Date(q.updatedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-            quotationId: q.id,
-          });
+          if (q.order?.status === 'FULFILLED') {
+            recentActivity.push({
+              icon: '🎉',
+              text: `Quotation ${q.quotationNumber} (Order #${q.order.orderNumber}) delivered & completed!`,
+              time: new Date(q.updatedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+              quotationId: q.id,
+            });
+          } else {
+            recentActivity.push({
+              icon: '📦',
+              text: `Quotation ${q.quotationNumber} converted to Order. Fulfillment initiated.`,
+              time: new Date(q.updatedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+              quotationId: q.id,
+            });
+          }
         } else {
           recentActivity.push({
             icon: '📄',
@@ -191,6 +201,11 @@ export class NegotiationController {
         customerStatus: q.customerStatus,
         salesRep: q.salesRep?.username || 'Account Executive',
         itemCount: q.items.length,
+        order: q.order ? {
+          id: q.order.id,
+          orderNumber: q.order.orderNumber,
+          status: q.order.status,
+        } : null,
         items: q.items.map((it) => ({
           id: it.id,
           product: it.product.name,

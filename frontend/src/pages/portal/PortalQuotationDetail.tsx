@@ -17,6 +17,7 @@ import {
   ThumbsDown,
   Percent,
   Sliders,
+  Package,
 } from 'lucide-react';
 import { Badge } from '../../components/ui/Badge';
 import { Skeleton } from '../../components/ui/Skeleton';
@@ -309,6 +310,16 @@ export function PortalQuotationDetail() {
   }
 
   const cfg = statusConfig[quote.status] ?? { label: quote.status, variant: 'default' };
+  let displayBadge = cfg;
+  if (quote.order) {
+    if (quote.order.status === 'FULFILLED') {
+      displayBadge = { label: 'Order Fulfilled & Delivered ✓', variant: 'success' };
+    } else if (quote.order.status === 'PARTIALLY_FULFILLED') {
+      displayBadge = { label: 'Partially Fulfilled', variant: 'warning' };
+    } else if (quote.order.status === 'PENDING_FULFILLMENT') {
+      displayBadge = { label: 'Order Placed ✓', variant: 'info' };
+    }
+  }
   const canConfirm = quote.status === 'APPROVED';
   const isConverted = quote.status === 'CONVERTED_TO_ORDER' || quote.status === 'CONFIRMED';
   const isRejected = quote.status === 'REJECTED';
@@ -409,23 +420,46 @@ export function PortalQuotationDetail() {
       )}
 
       {/* End-to-End Deal Journey Stepper */}
-      <DealLifecycleStepper
-        status={quote.status}
-        quotationNumber={quote.quotationNumber}
-        orderNumber={quote.orderId ? `SO-${quote.quotationNumber.replace('QT-', '')}` : undefined}
-        createdAt={quote.createdAt}
-        updatedAt={quote.updatedAt}
-      />
+      {(() => {
+        let lifecycleStatus = quote.status;
+        if (quote.order) {
+          if (quote.order.status === 'FULFILLED') {
+            lifecycleStatus = 'DELIVERED';
+          } else if (quote.order.status === 'PARTIALLY_FULFILLED') {
+            lifecycleStatus = 'PARTIALLY_FULFILLED';
+          } else if (quote.order.status === 'PENDING_FULFILLMENT') {
+            lifecycleStatus = 'CONVERTED_TO_ORDER';
+          }
+        }
+        return (
+          <DealLifecycleStepper
+            status={lifecycleStatus}
+            quotationNumber={quote.quotationNumber}
+            orderNumber={quote.order?.orderNumber || (quote.orderId ? `SO-${quote.quotationNumber.replace('QT-', '')}` : undefined)}
+            createdAt={quote.createdAt}
+            updatedAt={quote.updatedAt}
+          />
+        );
+      })()}
 
       {/* Header card */}
       <div className="bg-white dark:bg-zinc-900 rounded-xl border border-slate-200 dark:border-zinc-800 p-6 transition-colors shadow-sm">
         <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
           <div>
-            <div className="flex items-center gap-3 mb-2">
+            <div className="flex items-center gap-3 mb-2 flex-wrap">
               <h1 className="text-xl font-bold text-slate-900 dark:text-white tracking-tight">
                 {quote.quotationNumber}
               </h1>
-              <Badge variant={cfg.variant}>{cfg.label}</Badge>
+              <Badge variant={displayBadge.variant}>{displayBadge.label}</Badge>
+              {quote.order && (
+                <button
+                  onClick={() => navigate('/portal/dashboard?tab=orders')}
+                  className="inline-flex items-center gap-1 text-xs font-semibold text-purple-600 dark:text-purple-400 hover:text-purple-700 dark:hover:text-purple-300 hover:underline cursor-pointer bg-purple-50 dark:bg-purple-950/40 px-2.5 py-1 rounded-md border border-purple-200 dark:border-purple-800/60 transition-colors"
+                >
+                  <Package className="w-3.5 h-3.5" />
+                  <span>Order #{quote.order.orderNumber} ({quote.order.status}) &rarr;</span>
+                </button>
+              )}
             </div>
             <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500 dark:text-zinc-400">
               <span className="flex items-center gap-1.5">
