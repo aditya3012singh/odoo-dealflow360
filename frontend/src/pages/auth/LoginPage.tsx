@@ -21,13 +21,6 @@ const loginSchema = z.object({
 
 type LoginFormData = z.infer<typeof loginSchema>;
 
-const DEMO_USERS = [
-  { label: 'Sales Rep', email: 'rep@dealflow360.com' },
-  { label: 'Manager', email: 'manager@dealflow360.com' },
-  { label: 'Finance', email: 'finance@dealflow360.com' },
-  { label: 'Admin', email: 'admin@dealflow360.com' },
-];
-
 export function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const dispatch = useAppDispatch();
@@ -51,8 +44,6 @@ export function LoginPage() {
     defaultValues: { email: '', password: '' },
   });
 
-  const currentEmail = watch('email');
-
   useEffect(() => {
     if (isAuthenticated) {
       navigate(from, { replace: true });
@@ -67,13 +58,6 @@ export function LoginPage() {
 
   const onSubmit = async (data: LoginFormData) => {
     dispatch(login(data));
-  };
-
-  const fillDemo = (email: string) => {
-    dispatch(clearError());
-    clearErrors();
-    setValue('email', email, { shouldValidate: true });
-    setValue('password', 'password123', { shouldValidate: true });
   };
 
   return (
@@ -106,28 +90,6 @@ export function LoginPage() {
             </p>
           </div>
 
-          {/* Quick Demo Fill Buttons */}
-          <div className="mb-5">
-            <div className="text-[11px] font-medium text-slate-400 dark:text-zinc-500 mb-2 text-center uppercase tracking-wider">
-              Quick demo login
-            </div>
-            <div className="grid grid-cols-2 gap-2">
-              {DEMO_USERS.map((u) => (
-                <button
-                  key={u.email}
-                  type="button"
-                  onClick={() => fillDemo(u.email)}
-                  className={`px-3 py-2 rounded-lg text-xs font-medium border text-center transition cursor-pointer ${
-                    currentEmail === u.email
-                      ? 'border-slate-900 dark:border-white bg-slate-900 dark:bg-white text-white dark:text-black'
-                      : 'border-slate-200 dark:border-zinc-800 bg-slate-50 dark:bg-zinc-900/60 text-slate-700 dark:text-zinc-300 hover:border-slate-300 dark:hover:border-zinc-700'
-                  }`}
-                >
-                  {u.label}
-                </button>
-              ))}
-            </div>
-          </div>
 
           {/* Error */}
           {error && (

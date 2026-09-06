@@ -8,11 +8,6 @@ const KNOWN_DEMO_TOKENS: Record<string, string> = {
   'buyer@betatech.io': 'beta_portal_demo_token_2026',
 };
 
-const DEMO_ACCOUNTS = [
-  { label: 'Acme Global', email: 'procurement@acme.com', company: 'Acme Global Industries' },
-  { label: 'Beta Technologies', email: 'buyer@betatech.io', company: 'Beta Technologies Corp' },
-];
-
 export function PortalLoginPage() {
   const [isRegister, setIsRegister] = useState(false);
 
@@ -197,14 +192,6 @@ export function PortalLoginPage() {
     }
   };
 
-  const fillDemo = (demoEmail: string) => {
-    setIsRegister(false);
-    setLoginEmail(demoEmail);
-    setLoginPassword('password123');
-    setServerError('');
-    setFieldErrors({});
-  };
-
   return (
     <div className="min-h-screen flex flex-col justify-between bg-slate-50 dark:bg-black text-slate-900 dark:text-zinc-100 transition-colors duration-200">
       {/* Minimal Top Header */}
@@ -238,31 +225,6 @@ export function PortalLoginPage() {
                 : 'Sign in to view, negotiate, and confirm your quotes'}
             </p>
           </div>
-
-          {/* Quick Demo Fill Buttons (Only in login mode) */}
-          {!isRegister && (
-            <div className="mb-5">
-              <div className="text-[11px] font-semibold text-slate-400 dark:text-zinc-500 mb-2 text-center uppercase tracking-wider">
-                Quick Demo Accounts (Password: <span className="font-mono lowercase text-slate-700 dark:text-zinc-300">password123</span>)
-              </div>
-              <div className="grid grid-cols-2 gap-2">
-                {DEMO_ACCOUNTS.map((d) => (
-                  <button
-                    key={d.email}
-                    type="button"
-                    onClick={() => fillDemo(d.email)}
-                    className={`px-3 py-2 rounded-xl text-xs font-medium border text-center transition cursor-pointer ${
-                      loginEmail === d.email
-                        ? 'border-slate-900 dark:border-white bg-slate-900 dark:bg-white text-white dark:text-black'
-                        : 'border-slate-200 dark:border-zinc-800 bg-slate-50 dark:bg-zinc-900/60 text-slate-700 dark:text-zinc-300 hover:border-slate-300 dark:hover:border-zinc-700'
-                    }`}
-                  >
-                    {d.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
 
           {/* Server Error Alert */}
           {serverError && (
