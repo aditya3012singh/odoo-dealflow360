@@ -12,5 +12,19 @@
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
+    <!-- Kill Netlify injected badge (CSS can't pierce shadow DOM) -->
+    <script>
+      (function () {
+        function removeNetlifyBadge() {
+          const selectors = ['netlify-drawer', '[data-netlify-badge]', '#netlify-badge'];
+          selectors.forEach(function (sel) {
+            document.querySelectorAll(sel).forEach(function (el) { el.remove(); });
+          });
+        }
+        removeNetlifyBadge();
+        var observer = new MutationObserver(removeNetlifyBadge);
+        observer.observe(document.body, { childList: true, subtree: true });
+      })();
+    </script>
   </body>
 </html>

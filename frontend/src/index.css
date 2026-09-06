@@ -75,3 +75,20 @@ button, input, select, textarea {
 .light ::-webkit-scrollbar-thumb:hover {
   background: #94a3b8;
 }
+
+/* Hide injected Netlify floating badge / drawer */
+[data-netlify-badge],
+.netlify-badge,
+#netlify-badge,
+iframe[src*="netlify"],
+div[class*="netlify-drawer"],
+netlify-drawer,
+[class*="feedback-drawer"],
+a[href*="netlify.com"][class*="badge"],
+div:has(> a[href*="netlify.com"]) {
+  display: none !important;
+  visibility: hidden !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+
