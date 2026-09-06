@@ -137,7 +137,7 @@ export function Navbar({ onToggleMobileMenu }: NavbarProps) {
   };
 
   return (
-    <header className="h-14 bg-white/95 dark:bg-black/95 backdrop-blur-md border-b border-slate-200 dark:border-zinc-800 flex items-center justify-between px-4 sm:px-6 shrink-0 z-30 transition-colors duration-200">
+    <header className="h-16 bg-white/95 dark:bg-black/95 backdrop-blur-md border-b border-slate-200 dark:border-zinc-800 flex items-center justify-between px-4 sm:px-6 shrink-0 z-30 transition-colors duration-200">
       {/* Left: Mobile hamburger & Dynamic breadcrumbs */}
       <div className="flex items-center gap-2.5">
         {/* Mobile Hamburger Button */}
@@ -149,7 +149,7 @@ export function Navbar({ onToggleMobileMenu }: NavbarProps) {
           <Menu className="w-5 h-5" />
         </button>
 
-        <div className="flex items-center gap-1.5 text-xs sm:text-sm">
+        <div className="flex items-center gap-1.5 text-sm sm:text-[15px]">
           <Link
             to="/dashboard"
             className="font-bold tracking-tight text-slate-900 dark:text-white hover:opacity-80 transition"
@@ -157,7 +157,7 @@ export function Navbar({ onToggleMobileMenu }: NavbarProps) {
             DealFlow360
           </Link>
           <ChevronRight className="w-3.5 h-3.5 text-slate-300 dark:text-zinc-700 shrink-0" />
-          <span className="text-xs font-medium text-slate-500 dark:text-zinc-400 truncate max-w-[140px] sm:max-w-xs">
+          <span className="text-sm font-medium text-slate-500 dark:text-zinc-400 truncate max-w-[140px] sm:max-w-xs">
             {getBreadcrumbTitle()}
           </span>
         </div>

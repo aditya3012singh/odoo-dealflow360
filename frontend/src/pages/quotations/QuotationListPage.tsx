@@ -15,6 +15,8 @@ import {
   DollarSign,
   Clock,
   CheckCircle,
+  LayoutGrid,
+  List,
 } from 'lucide-react';
 import { quotationService } from '../../services/quotation.service';
 import type { Quotation, QuotationStatus } from '../../types';
@@ -49,6 +51,7 @@ export function QuotationListPage() {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
   const [error, setError] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<'list' | 'kanban'>('list');
 
   // Delete modal state
   const [deleteQuote, setDeleteQuote] = useState<Quotation | null>(null);
@@ -157,6 +160,31 @@ export function QuotationListPage() {
           </p>
         </div>
         <div className="flex items-center gap-2.5">
+          {/* View Mode Toggle */}
+          <div className="flex bg-slate-100 dark:bg-zinc-900 p-0.5 rounded-lg border border-slate-200 dark:border-zinc-800">
+            <button
+              onClick={() => setViewMode('list')}
+              title="List View"
+              className={`p-1.5 rounded-md transition-all ${
+                viewMode === 'list'
+                  ? 'bg-white dark:bg-zinc-800 text-slate-900 dark:text-white shadow-sm'
+                  : 'text-slate-500 dark:text-zinc-500 hover:text-slate-800'
+              }`}
+            >
+              <List className="w-4 h-4" />
+            </button>
+            <button
+              onClick={() => setViewMode('kanban')}
+              title="Kanban View"
+              className={`p-1.5 rounded-md transition-all ${
+                viewMode === 'kanban'
+                  ? 'bg-white dark:bg-zinc-800 text-slate-900 dark:text-white shadow-sm'
+                  : 'text-slate-500 dark:text-zinc-500 hover:text-slate-800'
+              }`}
+            >
+              <LayoutGrid className="w-4 h-4" />
+            </button>
+          </div>
           <button
             onClick={fetchQuotations}
             disabled={loading}
@@ -343,6 +371,86 @@ export function QuotationListPage() {
               Create Quotation
             </button>
           )}
+        </div>
+      ) : viewMode === 'kanban' ? (
+        /* ── KANBAN BOARD VIEW ── */
+        <div className="overflow-x-auto pb-4">
+          <div className="flex gap-4 min-w-max">
+            {[
+              { label: 'Draft', key: 'DRAFT', color: 'border-slate-400', badge: 'bg-slate-100 text-slate-700 dark:bg-zinc-800 dark:text-zinc-300' },
+              { label: 'Pending Approval', key: 'PENDING', color: 'border-amber-400', badge: 'bg-amber-100 text-amber-800 dark:bg-amber-950/50 dark:text-amber-300' },
+              { label: 'Approved', key: 'APPROVED', color: 'border-blue-400', badge: 'bg-blue-100 text-blue-800 dark:bg-blue-950/50 dark:text-blue-300' },
+              { label: 'Negotiation', key: 'UNDER_NEGOTIATION', color: 'border-purple-400', badge: 'bg-purple-100 text-purple-800 dark:bg-purple-950/50 dark:text-purple-300' },
+              { label: 'Converted', key: 'CONVERTED_TO_ORDER', color: 'border-emerald-400', badge: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300' },
+              { label: 'Rejected', key: 'REJECTED', color: 'border-rose-400', badge: 'bg-rose-100 text-rose-800 dark:bg-rose-950/50 dark:text-rose-300' },
+            ].map((col) => {
+              const colQuotes = quotations.filter((q) =>
+                col.key === 'PENDING'
+                  ? q.status === 'PENDING_MANAGER' || q.status === 'PENDING_FINANCE'
+                  : q.status === col.key
+              );
+              const colValue = colQuotes.reduce((s, q) => s + Number(q.totalAmount || 0), 0);
+              return (
+                <div key={col.key} className={`w-72 flex-shrink-0 flex flex-col gap-2`}>
+                  {/* Column Header */}
+                  <div className={`flex items-center justify-between px-3 py-2 rounded-lg border-l-4 ${col.color} bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 shadow-sm`}>
+                    <div>
+                      <div className="text-xs font-bold text-slate-800 dark:text-zinc-200">{col.label}</div>
+                      <div className="text-[11px] text-slate-400 dark:text-zinc-500 font-mono">
+                        ₹{colValue.toLocaleString('en-IN')}
+                      </div>
+                    </div>
+                    <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${col.badge}`}>
+                      {colQuotes.length}
+                    </span>
+                  </div>
+                  {/* Cards */}
+                  <div className="space-y-2 max-h-[68vh] overflow-y-auto pr-1">
+                    {colQuotes.length === 0 ? (
+                      <div className="border-2 border-dashed border-slate-200 dark:border-zinc-800 rounded-lg p-6 text-center text-xs text-slate-400 dark:text-zinc-600">
+                        No deals
+                      </div>
+                    ) : (
+                      colQuotes.map((q) => {
+                        const margin = Number(q.marginPercentage || 0);
+                        const marginColor = margin >= 30 ? 'text-emerald-600 dark:text-emerald-400' : margin >= 20 ? 'text-amber-600 dark:text-amber-400' : 'text-rose-600 dark:text-rose-400';
+                        return (
+                          <div
+                            key={q.id}
+                            onClick={() => navigate(`/quotations/${q.id}`)}
+                            className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 hover:border-slate-300 dark:hover:border-zinc-700 rounded-lg p-3.5 cursor-pointer hover:shadow-md transition-all group"
+                          >
+                            <div className="flex items-center justify-between mb-2">
+                              <span className="font-mono text-xs font-semibold text-slate-800 dark:text-zinc-200">{q.quotationNumber}</span>
+                              <button
+                                onClick={(e) => handleDeleteClick(e, q)}
+                                className="opacity-0 group-hover:opacity-100 p-0.5 text-slate-400 hover:text-rose-600 rounded transition-all"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                            <div className="flex items-center gap-1.5 text-xs font-medium text-slate-700 dark:text-zinc-300 mb-1">
+                              <Building2 className="w-3 h-3 text-slate-400" />
+                              <span className="truncate">{q.customer?.companyName || 'Unknown'}</span>
+                            </div>
+                            <div className="flex items-center justify-between mt-2 pt-2 border-t border-slate-100 dark:border-zinc-800">
+                              <span className="font-mono text-xs font-bold text-slate-900 dark:text-white">₹{Number(q.totalAmount || 0).toLocaleString('en-IN')}</span>
+                              <span className={`text-[11px] font-semibold ${marginColor}`}>{margin.toFixed(1)}% Mgn</span>
+                            </div>
+                            {Number(q.riskScore || 0) > 0 && (
+                              <div className="mt-1 text-[10px] text-rose-500 dark:text-rose-400 font-mono font-medium">
+                                BRS: {Number(q.riskScore).toFixed(1)}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         </div>
       ) : (
         /* Quotation Cards Grid */

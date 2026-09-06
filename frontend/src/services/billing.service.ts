@@ -109,6 +109,16 @@ export const billingService = {
     return res.data.data;
   },
 
+  async cancelSubscription(id: string, reason?: string): Promise<{
+    subscription: Subscription;
+    creditNote: any | null;
+    daysRemaining: number;
+    creditAmount: number;
+  }> {
+    const res = await api.post(`/billing/subscriptions/${id}/cancel`, { reason });
+    return res.data.data;
+  },
+
   async getOrderBilling(orderId: string): Promise<OrderBillingResponse> {
     const res = await api.get(`/billing/orders/${orderId}`);
     return res.data.data;

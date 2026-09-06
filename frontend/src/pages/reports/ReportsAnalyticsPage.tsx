@@ -12,6 +12,7 @@ import {
   AlertTriangle,
   ArrowUpRight,
   SlidersHorizontal,
+  Printer,
 } from 'lucide-react';
 import { StatCard } from '../../components/ui/StatCard';
 import { Badge } from '../../components/ui/Badge';
@@ -27,6 +28,8 @@ export function ReportsAnalyticsPage() {
   const [loading, setLoading] = useState(true);
   const [timeRange, setTimeRange] = useState<'all' | '30d' | '7d'>('all');
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
+  const [categoryFilter, setCategoryFilter] = useState<string>('ALL');
+  const [repFilter, setRepFilter] = useState<string>('ALL');
   const [searchQuery, setSearchQuery] = useState('');
 
   const fetchData = async () => {
@@ -122,6 +125,15 @@ export function ReportsAnalyticsPage() {
     return { low, moderate, high };
   }, [timeFilteredQuotes]);
 
+  // Unique sales reps from data (for dropdown)
+  const uniqueReps = useMemo(() => {
+    const map = new Map<string, string>();
+    quotations.forEach((q) => {
+      if (q.salesRep?.id) map.set(q.salesRep.id, q.salesRep.username);
+    });
+    return Array.from(map.entries()).map(([id, name]) => ({ id, name }));
+  }, [quotations]);
+
   // Filtered rows for table
   const filteredQuotations = useMemo(() => {
     return timeFilteredQuotes.filter((q) => {
@@ -132,15 +144,25 @@ export function ReportsAnalyticsPage() {
           ? q.status.startsWith('PENDING')
           : q.status === statusFilter;
 
+      const matchesCategory =
+        categoryFilter === 'ALL'
+          ? true
+          : q.items?.some((i: any) =>
+              (i.product?.category?.name || '').toUpperCase() === categoryFilter
+            );
+
+      const matchesRep =
+        repFilter === 'ALL' ? true : q.salesRep?.id === repFilter;
+
       const qNum = (q.quotationNumber || '').toLowerCase();
       const cName = (q.customer?.name || '').toLowerCase();
       const repName = (q.salesRep?.username || '').toLowerCase();
       const s = searchQuery.toLowerCase();
       const matchesSearch = qNum.includes(s) || cName.includes(s) || repName.includes(s);
 
-      return matchesStatus && matchesSearch;
+      return matchesStatus && matchesSearch && matchesCategory && matchesRep;
     });
-  }, [timeFilteredQuotes, statusFilter, searchQuery]);
+  }, [timeFilteredQuotes, statusFilter, searchQuery, categoryFilter, repFilter]);
 
   // Export to CSV
   const handleExportCSV = () => {
@@ -253,6 +275,14 @@ export function ReportsAnalyticsPage() {
           >
             <Download className="w-3.5 h-3.5" />
             Export CSV
+          </button>
+          <button
+            onClick={() => window.print()}
+            className="flex items-center gap-2 border border-slate-200 dark:border-zinc-700 hover:bg-slate-50 dark:hover:bg-zinc-800 text-slate-700 dark:text-zinc-300 px-3.5 py-1.5 rounded-lg text-xs font-medium transition-colors shadow-sm"
+            title="Print / Save as PDF"
+          >
+            <Printer className="w-3.5 h-3.5" />
+            Export PDF
           </button>
         </div>
       </div>
@@ -541,16 +571,44 @@ export function ReportsAnalyticsPage() {
             )}
           </div>
 
-          {/* Search */}
-          <div className="relative w-full sm:w-64">
-            <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-            <input
-              type="text"
-              placeholder="Search quote, rep, customer..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full bg-slate-50 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-lg pl-9 pr-3 py-1.5 text-xs text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-slate-400 dark:focus:ring-zinc-600"
-            />
+          {/* Search + Category + Rep Filters */}
+          <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+            <div className="relative">
+              <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input
+                type="text"
+                placeholder="Search quote, rep, customer..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full sm:w-52 bg-slate-50 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-lg pl-9 pr-3 py-1.5 text-xs text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-slate-400 dark:focus:ring-zinc-600"
+              />
+            </div>
+
+            {/* Category Filter */}
+            <select
+              value={categoryFilter}
+              onChange={(e) => setCategoryFilter(e.target.value)}
+              className="bg-slate-50 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-lg px-2 py-1.5 text-xs text-slate-700 dark:text-zinc-300 focus:outline-none focus:ring-1 focus:ring-slate-400"
+            >
+              <option value="ALL">All Categories</option>
+              <option value="HARDWARE">Hardware</option>
+              <option value="SERVICES">Services</option>
+              <option value="SUBSCRIPTIONS">Subscriptions</option>
+            </select>
+
+            {/* Sales Rep Filter */}
+            {uniqueReps.length > 0 && (
+              <select
+                value={repFilter}
+                onChange={(e) => setRepFilter(e.target.value)}
+                className="bg-slate-50 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-lg px-2 py-1.5 text-xs text-slate-700 dark:text-zinc-300 focus:outline-none focus:ring-1 focus:ring-slate-400"
+              >
+                <option value="ALL">All Reps</option>
+                {uniqueReps.map((r) => (
+                  <option key={r.id} value={r.id}>{r.name}</option>
+                ))}
+              </select>
+            )}
           </div>
         </div>
 

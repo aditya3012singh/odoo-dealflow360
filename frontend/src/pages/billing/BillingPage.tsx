@@ -16,6 +16,8 @@ import {
   PauseCircle,
   PlayCircle,
   XCircle,
+  AlertOctagon,
+  Printer,
 } from 'lucide-react';
 import {
   billingService,
@@ -49,6 +51,12 @@ export function BillingPage() {
 
   // Subscription status updating
   const [updatingSubId, setUpdatingSubId] = useState<string | null>(null);
+
+  // Subscription cancellation modal state
+  const [cancelTarget, setCancelTarget] = useState<Subscription | null>(null);
+  const [cancelReason, setCancelReason] = useState('');
+  const [cancellingId, setCancellingId] = useState<string | null>(null);
+  const [cancelResult, setCancelResult] = useState<{ creditAmount: number; daysRemaining: number } | null>(null);
 
   // Proration Calculator state
   const [calcCurrentPrice, setCalcCurrentPrice] = useState<number>(5000);
@@ -127,6 +135,29 @@ export function BillingPage() {
     }
   };
 
+  const handleCancelSubscription = async () => {
+    if (!cancelTarget) return;
+    try {
+      setCancellingId(cancelTarget.id);
+      setError(null);
+      const result = await billingService.cancelSubscription(cancelTarget.id, cancelReason.trim() || undefined);
+      setCancelResult({ creditAmount: result.creditAmount, daysRemaining: result.daysRemaining });
+      setSuccessMsg(
+        result.creditAmount > 0
+          ? `Subscription cancelled. Credit note of ₹${Number(result.creditAmount).toLocaleString('en-IN')} issued for ${result.daysRemaining} unused days.`
+          : 'Subscription cancelled. No credit applicable (period already ended).'
+      );
+      setCancelTarget(null);
+      setCancelReason('');
+      await fetchBillingData();
+      setTimeout(() => setSuccessMsg(null), 6000);
+    } catch (err: any) {
+      setError(err.response?.data?.message || 'Failed to cancel subscription');
+    } finally {
+      setCancellingId(null);
+    }
+  };
+
   const handleCalculateProration = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
@@ -181,6 +212,14 @@ export function BillingPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <button
+            onClick={() => window.print()}
+            className="inline-flex items-center gap-2 px-3 py-2 text-xs font-medium rounded-lg border border-slate-200 dark:border-zinc-800 hover:bg-slate-50 dark:hover:bg-zinc-800 text-slate-700 dark:text-zinc-300 transition-colors"
+            title="Print / Export as PDF"
+          >
+            <Printer className="w-3.5 h-3.5" />
+            Export PDF
+          </button>
           <button
             onClick={fetchBillingData}
             disabled={loading}
@@ -559,12 +598,15 @@ export function BillingPage() {
 
                       {sub.status !== 'CANCELLED' && (
                         <button
-                          disabled={updatingSubId === sub.id}
-                          onClick={() => handleUpdateSubscription(sub.id, 'CANCELLED')}
+                          disabled={updatingSubId === sub.id || cancellingId === sub.id}
+                          onClick={() => {
+                            setCancelTarget(sub);
+                            setCancelReason('');
+                          }}
                           className="px-3 py-1.5 text-xs font-medium rounded-lg border border-rose-200 dark:border-rose-900/50 hover:bg-rose-50 dark:hover:bg-rose-950/30 text-rose-700 dark:text-rose-400 transition flex items-center gap-1.5"
                         >
                           <XCircle className="w-3.5 h-3.5" />
-                          Cancel
+                          Cancel Subscription
                         </button>
                       )}
                     </div>
@@ -823,6 +865,102 @@ export function BillingPage() {
               </button>
             </div>
           </form>
+        </div>
+      )}
+      {cancelTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-2xl p-6 max-w-md w-full shadow-2xl space-y-5">
+            {/* Header */}
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 rounded-xl bg-rose-100 dark:bg-rose-950/50">
+                <AlertOctagon className="w-5 h-5 text-rose-600 dark:text-rose-400" />
+              </div>
+              <div>
+                <h3 className="text-base font-semibold text-slate-900 dark:text-white">Cancel Subscription</h3>
+                <p className="text-xs text-slate-500 dark:text-zinc-400">This action is irreversible and will stop all future billing.</p>
+              </div>
+            </div>
+
+            {/* Subscription summary */}
+            <div className="bg-slate-50 dark:bg-zinc-950/60 border border-slate-200 dark:border-zinc-800 rounded-xl p-4 space-y-2 text-xs">
+              <div className="flex justify-between">
+                <span className="text-slate-500 dark:text-zinc-400">Subscription</span>
+                <span className="font-semibold text-slate-900 dark:text-white">{cancelTarget.product?.name || cancelTarget.plan?.name || 'SaaS Plan'}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500 dark:text-zinc-400">Customer</span>
+                <span className="font-medium text-slate-800 dark:text-zinc-200">{cancelTarget.customer?.companyName || cancelTarget.customer?.name || '—'}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500 dark:text-zinc-400">Monthly Rate</span>
+                <span className="font-mono font-semibold text-slate-900 dark:text-white">₹{Number(cancelTarget.plan?.price || 0).toLocaleString('en-IN')}/mo</span>
+              </div>
+              {cancelTarget.currentPeriodEnd && (
+                <div className="flex justify-between">
+                  <span className="text-slate-500 dark:text-zinc-400">Current Period Ends</span>
+                  <span className="font-mono text-slate-700 dark:text-zinc-300">{new Date(cancelTarget.currentPeriodEnd).toLocaleDateString()}</span>
+                </div>
+              )}
+            </div>
+
+            {/* Credit note preview */}
+            {cancelTarget.currentPeriodEnd && (() => {
+              const msLeft = Math.max(0, new Date(cancelTarget.currentPeriodEnd).getTime() - Date.now());
+              const daysLeft = Math.ceil(msLeft / (1000 * 60 * 60 * 24));
+              const dailyRate = Number(cancelTarget.plan?.price || 0) / 30;
+              const credit = Number((dailyRate * daysLeft).toFixed(2));
+              return credit > 0 ? (
+                <div className="flex items-start gap-2.5 p-3.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800/60 text-xs">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+                  <div>
+                    <p className="font-semibold text-emerald-800 dark:text-emerald-300">Credit Note will be issued automatically</p>
+                    <p className="text-emerald-700 dark:text-emerald-400 mt-0.5">
+                      <span className="font-mono font-bold">₹{credit.toLocaleString('en-IN')}</span> for {daysLeft} unused days at ₹{dailyRate.toFixed(0)}/day
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2 p-3 rounded-xl bg-slate-50 dark:bg-zinc-950/50 border border-slate-200 dark:border-zinc-800 text-xs text-slate-500 dark:text-zinc-400">
+                  <Clock className="w-4 h-4" />
+                  Current billing period has ended — no credit applicable.
+                </div>
+              );
+            })()}
+
+            {/* Reason field */}
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 dark:text-zinc-300 mb-1.5">
+                Cancellation Reason <span className="font-normal text-slate-400">(optional)</span>
+              </label>
+              <textarea
+                rows={2}
+                value={cancelReason}
+                onChange={(e) => setCancelReason(e.target.value)}
+                placeholder="e.g. Customer downgrading, end of contract, budget cut..."
+                className="w-full bg-slate-50 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-lg p-2.5 text-xs text-slate-900 dark:text-white placeholder-slate-400 resize-none focus:outline-none focus:ring-1 focus:ring-rose-400"
+              />
+            </div>
+
+            {/* Actions */}
+            <div className="flex justify-end gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => { setCancelTarget(null); setCancelReason(''); }}
+                className="px-4 py-2 text-xs font-medium rounded-lg border border-slate-200 dark:border-zinc-800 text-slate-600 dark:text-zinc-400 hover:bg-slate-50 dark:hover:bg-zinc-800 transition"
+              >
+                Keep Subscription
+              </button>
+              <button
+                type="button"
+                onClick={handleCancelSubscription}
+                disabled={!!cancellingId}
+                className="px-4 py-2 text-xs font-semibold rounded-lg bg-rose-600 hover:bg-rose-700 text-white transition flex items-center gap-1.5 shadow-sm disabled:opacity-60"
+              >
+                {cancellingId ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <XCircle className="w-3.5 h-3.5" />}
+                Confirm Cancellation
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

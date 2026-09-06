@@ -143,4 +143,84 @@ export class BillingController {
       next(err);
     }
   }
+  static async cancelSubscription(req: TracedRequest, res: FormattedResponse, next: NextFunction) {
+    try {
+      const id = req.params.id as string;
+      const { reason } = req.body ?? {};
+
+      const sub = await prisma.subscription.findUnique({
+        where: { id },
+        include: { plan: true, product: true, customer: true, order: true },
+      });
+
+      if (!sub) {
+        return res.status(404).json({ success: false, message: 'Subscription not found' });
+      }
+
+      if (sub.status === 'CANCELLED') {
+        return res.status(400).json({ success: false, message: 'Subscription is already cancelled' });
+      }
+
+      const now = new Date();
+      const periodEnd = new Date(sub.currentPeriodEnd);
+      const msRemaining = Math.max(0, periodEnd.getTime() - now.getTime());
+      const daysRemaining = Math.ceil(msRemaining / (1000 * 60 * 60 * 24));
+      const daysInPeriod = 30; // Normalised monthly period
+      const dailyRate = Number(sub.plan.price) / daysInPeriod;
+      const creditAmount = Number((dailyRate * daysRemaining).toFixed(2));
+
+      const result = await prisma.$transaction(async (tx) => {
+        // 1. Cancel the subscription
+        const cancelled = await tx.subscription.update({
+          where: { id },
+          data: { status: 'CANCELLED', cancelledAt: now },
+          include: { plan: true, product: true, customer: true },
+        });
+
+        // 2. Cancel all pending billing schedules
+        await tx.billingSchedule.updateMany({
+          where: { subscriptionId: id, status: 'SCHEDULED' },
+          data: { status: 'CANCELLED' },
+        });
+
+        // 3. Issue credit note if credit amount > 0
+        let creditNote = null;
+        if (creditAmount > 0) {
+          const creditInvoiceNumber = `CN-${Date.now().toString().slice(-8)}`;
+          creditNote = await tx.invoice.create({
+            data: {
+              invoiceNumber: creditInvoiceNumber,
+              orderId: sub.orderId,
+              customerId: sub.customerId,
+              invoiceType: 'CREDIT_NOTE',
+              subtotal: creditAmount,
+              taxAmount: 0,
+              totalAmount: creditAmount,
+              status: 'ISSUED',
+              dueDate: new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000),
+              items: {
+                create: [{
+                  productId: sub.productId,
+                  description: `Credit Note: Early cancellation of ${sub.product.name} — ${daysRemaining} unused days at ₹${dailyRate.toFixed(2)}/day${reason ? ` (Reason: ${reason})` : ''}`,
+                  quantity: daysRemaining,
+                  unitPrice: dailyRate,
+                  discountAmount: 0,
+                  taxAmount: 0,
+                  lineTotal: creditAmount,
+                }],
+              },
+            },
+          });
+        }
+
+        return { subscription: cancelled, creditNote, daysRemaining, creditAmount };
+      });
+
+      return res.ok
+        ? res.ok(result, `Subscription cancelled. Credit note of ₹${creditAmount.toFixed(2)} issued for ${daysRemaining} unused days.`)
+        : res.json({ success: true, data: result });
+    } catch (err) {
+      next(err);
+    }
+  }
 }
