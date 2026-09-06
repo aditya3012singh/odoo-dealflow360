@@ -63,6 +63,23 @@ export function QuotationBuilderPage() {
   const [itemDrafts, setItemDrafts] = useState<
     Record<string, { quantity: number | string; discountPercentage: number | string }>
   >({});
+  const updateTimerRef = useRef<Record<string, any>>({});
+
+  const debouncedUpdateItem = (itemId: string, newQty: number, newDiscount: number) => {
+    if (updateTimerRef.current[itemId]) {
+      clearTimeout(updateTimerRef.current[itemId]);
+    }
+    updateTimerRef.current[itemId] = setTimeout(() => {
+      handleUpdateItem(itemId, newQty, newDiscount);
+      delete updateTimerRef.current[itemId];
+    }, 500);
+  };
+
+  useEffect(() => {
+    return () => {
+      Object.values(updateTimerRef.current).forEach((timer: any) => clearTimeout(timer));
+    };
+  }, []);
 
   // Discussion & Comments states
   const [comments, setComments] = useState<any[]>([]);
@@ -92,17 +109,24 @@ export function QuotationBuilderPage() {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
-  // Sync itemDrafts whenever quotation items change
+  // Sync itemDrafts whenever quotation items change without clobbering active edits
   useEffect(() => {
     if (quotation?.items) {
-      const drafts: Record<string, { quantity: number | string; discountPercentage: number | string }> = {};
-      quotation.items.forEach((item) => {
-        drafts[item.id] = {
-          quantity: item.quantity,
-          discountPercentage: item.discountPercentage,
-        };
+      setItemDrafts((prev) => {
+        const nextDrafts: Record<string, { quantity: number | string; discountPercentage: number | string }> = {};
+        quotation.items.forEach((item) => {
+          const existing = prev[item.id];
+          const serverDisc = Number(item.discountPercentage || 0);
+          nextDrafts[item.id] = {
+            quantity: existing?.quantity !== undefined ? existing.quantity : item.quantity,
+            discountPercentage:
+              existing?.discountPercentage !== undefined && existing.discountPercentage !== ''
+                ? existing.discountPercentage
+                : serverDisc.toString(),
+          };
+        });
+        return nextDrafts;
       });
-      setItemDrafts(drafts);
     }
   }, [quotation?.items]);
 
@@ -407,9 +431,53 @@ export function QuotationBuilderPage() {
     }, 4000);
   };
 
+  // Real-time financial calculations derived from active line item drafts
+  const liveFinancials = useMemo(() => {
+    if (!quotation?.items || quotation.items.length === 0) {
+      return {
+        subtotal: 0,
+        discountAmount: 0,
+        taxAmount: 0,
+        totalAmount: 0,
+        marginPercentage: 0,
+      };
+    }
+    let totalGross = 0;
+    let totalDiscount = 0;
+    let totalCost = 0;
+
+    quotation.items.forEach((it) => {
+      const d = itemDrafts[it.id] || { quantity: it.quantity, discountPercentage: it.discountPercentage };
+      const q = Math.max(1, Number(d.quantity) || 1);
+      const disc = Math.min(100, Math.max(0, Number(d.discountPercentage) || 0));
+      const uPrice = Number(it.unitPrice || 0);
+      const cPrice = Number(it.costPrice || 0);
+
+      const gross = uPrice * q;
+      const discAmt = gross * (disc / 100);
+      totalGross += gross;
+      totalDiscount += discAmt;
+      totalCost += (cPrice * q);
+    });
+
+    const netTotal = Math.max(0, totalGross - totalDiscount);
+    const tax = netTotal * 0.18; // 18% standard GST
+    const grandTotal = netTotal + tax;
+    const marginAmt = netTotal - totalCost;
+    const marginPct = netTotal > 0 ? (marginAmt / netTotal) * 100 : 0;
+
+    return {
+      subtotal: totalGross,
+      discountAmount: totalDiscount,
+      taxAmount: tax,
+      totalAmount: grandTotal,
+      marginPercentage: marginPct,
+    };
+  }, [quotation?.items, itemDrafts]);
+
   // Safe numerical calculations
   const hasItems = Boolean(quotation?.items && quotation.items.length > 0);
-  const margin = hasItems ? Number(quotation?.marginPercentage || 0) : 0;
+  const margin = hasItems ? liveFinancials.marginPercentage : 0;
   const marginColor = !hasItems
     ? 'text-slate-400 dark:text-zinc-500'
     : margin >= 30
@@ -471,22 +539,27 @@ export function QuotationBuilderPage() {
   const currentCustomer =
     quotation?.customer || customers.find((c) => c.id === selectedCustomerId);
 
-  // Hybrid Split: Calculate One-Time (CapEx) vs Recurring Monthly (OpEx)
+  // Hybrid Split: Calculate One-Time (CapEx) vs Recurring Monthly (OpEx) with live drafts
   const hybridSplit = useMemo(() => {
     if (!quotation?.items) return { oneTimeGross: 0, recurringMonthlyGross: 0 };
     let oneTime = 0;
     let recurring = 0;
     quotation.items.forEach((item) => {
       const isRec = item.product?.isRecurring || item.product?.category?.name === 'SUBSCRIPTIONS';
-      const amount = Number(item.lineTotal || 0);
+      const d = itemDrafts[item.id] || { quantity: item.quantity, discountPercentage: item.discountPercentage };
+      const q = Math.max(1, Number(d.quantity) || 1);
+      const disc = Math.min(100, Math.max(0, Number(d.discountPercentage) || 0));
+      const uPrice = Number(item.unitPrice || 0);
+      const gross = uPrice * q;
+      const lineTotal = Math.max(0, gross - (gross * (disc / 100)));
       if (isRec) {
-        recurring += amount;
+        recurring += lineTotal;
       } else {
-        oneTime += amount;
+        oneTime += lineTotal;
       }
     });
-    return { oneTimeGross: oneTime, recurringMonthlyGross: recurring };
-  }, [quotation?.items]);
+    return { oneTimeGross: Math.round(oneTime), recurringMonthlyGross: Math.round(recurring) };
+  }, [quotation?.items, itemDrafts]);
 
   // Filter products by category AND search query safely
   const filteredProducts = useMemo(() => {
@@ -849,15 +922,29 @@ export function QuotationBuilderPage() {
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-zinc-800/60 text-slate-800 dark:text-zinc-200">
                     {quotation.items.map((item) => {
-                      const itemMargin = Number(item.marginPercentage || 0);
-                      const hasExcess = Number(item.discountExcess || 0) > 0;
-                      const draft = itemDrafts[item.id] || {
-                        quantity: item.quantity,
-                        discountPercentage: item.discountPercentage,
-                      };
-
                       const categoryName = item.product?.category?.name || 'HARDWARE';
                       const isRecurring = item.product?.isRecurring || categoryName === 'SUBSCRIPTIONS';
+                      const draft = itemDrafts[item.id] || {
+                        quantity: item.quantity,
+                        discountPercentage: Number(item.discountPercentage || 0).toString(),
+                      };
+
+                      // Derive real-time values from current draft
+                      const draftQty = Math.max(1, Number(draft.quantity) || 1);
+                      const draftDisc = Math.min(100, Math.max(0, Number(draft.discountPercentage) || 0));
+                      const unitPrice = Number(item.unitPrice || 0);
+                      const costPrice = Number(item.costPrice || 0);
+
+                      const lineGross = unitPrice * draftQty;
+                      const lineDiscount = lineGross * (draftDisc / 100);
+                      const liveLineTotal = Math.max(0, lineGross - lineDiscount);
+                      const lineCost = costPrice * draftQty;
+                      const liveMarginAmount = liveLineTotal - lineCost;
+                      const liveMargin = liveLineTotal > 0 ? (liveMarginAmount / liveLineTotal) * 100 : 0;
+
+                      const discountLimit = Number(item.discountLimit) || (categoryName === 'HARDWARE' ? 15 : categoryName === 'SERVICES' ? 10 : 5);
+                      const liveExcess = Math.max(0, draftDisc - discountLimit);
+                      const hasLiveExcess = liveExcess > 0;
 
                       return (
                         <tr key={item.id} className="hover:bg-slate-50/60 dark:hover:bg-zinc-800/30 transition-colors">
@@ -902,11 +989,11 @@ export function QuotationBuilderPage() {
                                     </span>
                                   )}
                                 </div>
-                                {hasExcess && (
+                                {hasLiveExcess && (
                                   <div className="mt-1 inline-flex items-center gap-1 text-[11px] font-semibold text-rose-600 dark:text-rose-400">
                                     <AlertTriangle className="w-3 h-3" />
                                     <span>
-                                      {Number(item.discountExcess || 0).toFixed(1)}% above limit ({item.discountLimit || 0}%)
+                                      {liveExcess.toFixed(1)}% above limit ({discountLimit}%)
                                     </span>
                                   </div>
                                 )}
@@ -921,32 +1008,63 @@ export function QuotationBuilderPage() {
                               <div className="flex items-center gap-1">
                                 <button
                                   onClick={() => {
-                                    const next = Math.max(1, Number(draft.quantity) - 1);
+                                    const next = Math.max(1, draftQty - 1);
                                     setItemDrafts((prev) => ({
                                       ...prev,
-                                      [item.id]: { ...prev[item.id], quantity: next },
+                                      [item.id]: {
+                                        discountPercentage: prev[item.id]?.discountPercentage ?? Number(item.discountPercentage || 0).toString(),
+                                        quantity: next,
+                                      },
                                     }));
-                                    handleUpdateItem(item.id, next, Number(draft.discountPercentage));
+                                    if (updateTimerRef.current[item.id]) {
+                                      clearTimeout(updateTimerRef.current[item.id]);
+                                      delete updateTimerRef.current[item.id];
+                                    }
+                                    handleUpdateItem(item.id, next, draftDisc);
                                   }}
-                                  disabled={Number(draft.quantity) <= 1 || actionLoading}
+                                  disabled={draftQty <= 1 || actionLoading}
                                   className="w-5 h-5 flex items-center justify-center rounded border border-slate-200 dark:border-zinc-700 hover:bg-slate-100 dark:hover:bg-zinc-800 text-xs cursor-pointer"
                                 >
                                   -
                                 </button>
                                 <input
-                                  type="number"
-                                  min="1"
-                                  value={draft.quantity}
+                                  type="text"
+                                  inputMode="numeric"
+                                  value={draft.quantity === undefined ? '' : draft.quantity}
+                                  onFocus={(e) => {
+                                    if (e.target.value === '1') {
+                                      e.target.select();
+                                    }
+                                  }}
                                   onChange={(e) => {
                                     const val = e.target.value;
-                                    setItemDrafts((prev) => ({
-                                      ...prev,
-                                      [item.id]: { ...prev[item.id], quantity: val },
-                                    }));
+                                    if (val === '' || /^\d+$/.test(val)) {
+                                      setItemDrafts((prev) => ({
+                                        ...prev,
+                                        [item.id]: {
+                                          discountPercentage: prev[item.id]?.discountPercentage ?? Number(item.discountPercentage || 0).toString(),
+                                          quantity: val,
+                                        },
+                                      }));
+                                      if (val !== '' && Number(val) >= 1) {
+                                        debouncedUpdateItem(item.id, Number(val), draftDisc);
+                                      }
+                                    }
                                   }}
                                   onBlur={(e) => {
                                     const next = Math.max(1, Number(e.target.value) || 1);
-                                    handleUpdateItem(item.id, next, Number(draft.discountPercentage));
+                                    setItemDrafts((prev) => ({
+                                      ...prev,
+                                      [item.id]: {
+                                        discountPercentage: prev[item.id]?.discountPercentage ?? Number(item.discountPercentage || 0).toString(),
+                                        quantity: next,
+                                      },
+                                    }));
+                                    if (updateTimerRef.current[item.id]) {
+                                      clearTimeout(updateTimerRef.current[item.id]);
+                                      delete updateTimerRef.current[item.id];
+                                    }
+                                    handleUpdateItem(item.id, next, draftDisc);
                                   }}
                                   onKeyDown={(e) => {
                                     if (e.key === 'Enter') e.currentTarget.blur();
@@ -955,12 +1073,19 @@ export function QuotationBuilderPage() {
                                 />
                                 <button
                                   onClick={() => {
-                                    const next = Number(draft.quantity) + 1;
+                                    const next = draftQty + 1;
                                     setItemDrafts((prev) => ({
                                       ...prev,
-                                      [item.id]: { ...prev[item.id], quantity: next },
+                                      [item.id]: {
+                                        discountPercentage: prev[item.id]?.discountPercentage ?? Number(item.discountPercentage || 0).toString(),
+                                        quantity: next,
+                                      },
                                     }));
-                                    handleUpdateItem(item.id, next, Number(draft.discountPercentage));
+                                    if (updateTimerRef.current[item.id]) {
+                                      clearTimeout(updateTimerRef.current[item.id]);
+                                      delete updateTimerRef.current[item.id];
+                                    }
+                                    handleUpdateItem(item.id, next, draftDisc);
                                   }}
                                   disabled={actionLoading}
                                   className="w-5 h-5 flex items-center justify-center rounded border border-slate-200 dark:border-zinc-700 hover:bg-slate-100 dark:hover:bg-zinc-800 text-xs cursor-pointer"
@@ -976,26 +1101,55 @@ export function QuotationBuilderPage() {
                             {isEditable ? (
                               <div className="flex items-center gap-1">
                                 <input
-                                  type="number"
-                                  min="0"
-                                  max="100"
-                                  value={draft.discountPercentage}
+                                  type="text"
+                                  inputMode="decimal"
+                                  value={draft.discountPercentage === undefined ? '' : draft.discountPercentage}
+                                  onFocus={(e) => {
+                                    if (e.target.value === '0' || e.target.value === '0.00') {
+                                      e.target.select();
+                                    }
+                                  }}
                                   onChange={(e) => {
-                                    const val = e.target.value;
-                                    setItemDrafts((prev) => ({
-                                      ...prev,
-                                      [item.id]: { ...prev[item.id], discountPercentage: val },
-                                    }));
+                                    const raw = e.target.value;
+                                    // Allow empty string, or positive numbers with up to 2 decimal places
+                                    if (raw === '' || /^\d*\.?\d{0,2}$/.test(raw)) {
+                                      const num = Number(raw);
+                                      if (raw === '' || num <= 100) {
+                                        setItemDrafts((prev) => ({
+                                          ...prev,
+                                          [item.id]: {
+                                            quantity: prev[item.id]?.quantity ?? item.quantity,
+                                            discountPercentage: raw,
+                                          },
+                                        }));
+                                        const nextDisc = raw === '' ? 0 : Math.min(100, Math.max(0, Number(raw)));
+                                        debouncedUpdateItem(item.id, draftQty, nextDisc);
+                                      }
+                                    }
                                   }}
                                   onBlur={(e) => {
-                                    const next = Math.min(100, Math.max(0, Number(e.target.value) || 0));
-                                    handleUpdateItem(item.id, Number(draft.quantity), next);
+                                    const raw = e.target.value.trim();
+                                    let num = Number(raw);
+                                    if (isNaN(num) || raw === '') num = 0;
+                                    num = Math.min(100, Math.max(0, num));
+                                    setItemDrafts((prev) => ({
+                                      ...prev,
+                                      [item.id]: {
+                                        quantity: prev[item.id]?.quantity ?? item.quantity,
+                                        discountPercentage: num.toString(),
+                                      },
+                                    }));
+                                    if (updateTimerRef.current[item.id]) {
+                                      clearTimeout(updateTimerRef.current[item.id]);
+                                      delete updateTimerRef.current[item.id];
+                                    }
+                                    handleUpdateItem(item.id, draftQty, num);
                                   }}
                                   onKeyDown={(e) => {
                                     if (e.key === 'Enter') e.currentTarget.blur();
                                   }}
                                   className={`w-14 px-1.5 py-0.5 text-xs font-mono bg-slate-50 dark:bg-zinc-950 border rounded text-slate-900 dark:text-zinc-100 ${
-                                    hasExcess
+                                    hasLiveExcess
                                       ? 'border-rose-400 dark:border-rose-600 focus:ring-rose-500'
                                       : 'border-slate-200 dark:border-zinc-700'
                                   }`}
@@ -1007,19 +1161,19 @@ export function QuotationBuilderPage() {
                             )}
                           </td>
                           <td className="py-3 px-2.5 font-semibold text-slate-900 dark:text-white whitespace-nowrap font-mono text-[11px]">
-                            ₹{Number(item.lineTotal).toLocaleString('en-IN')}
+                            ₹{Math.round(liveLineTotal).toLocaleString('en-IN')}
                           </td>
                           <td className="py-3 px-2.5 whitespace-nowrap font-mono text-[11px]">
                             <span
                               className={`font-semibold ${
-                                itemMargin >= 30
+                                liveMargin >= 30
                                   ? 'text-emerald-600 dark:text-emerald-400'
-                                  : itemMargin >= 20
+                                  : liveMargin >= 20
                                   ? 'text-amber-600 dark:text-amber-400'
                                   : 'text-rose-600 dark:text-rose-400'
                               }`}
                             >
-                              {itemMargin.toFixed(1)}%
+                              {liveMargin.toFixed(1)}%
                             </span>
                           </td>
                           {isEditable && (
@@ -1265,25 +1419,25 @@ export function QuotationBuilderPage() {
               <div className="flex justify-between text-slate-500 dark:text-zinc-400">
                 <span>Gross Subtotal</span>
                 <span className="font-mono">
-                  ₹{Number(quotation?.subtotal || 0).toLocaleString('en-IN')}
+                  ₹{Math.round(liveFinancials.subtotal).toLocaleString('en-IN')}
                 </span>
               </div>
               <div className="flex justify-between text-slate-500 dark:text-zinc-400">
                 <span>Total Discount Applied</span>
                 <span className="font-mono text-rose-600 dark:text-rose-400">
-                  -₹{Number(quotation?.discountAmount || 0).toLocaleString('en-IN')}
+                  -₹{Math.round(liveFinancials.discountAmount).toLocaleString('en-IN')}
                 </span>
               </div>
               <div className="flex justify-between text-slate-500 dark:text-zinc-400">
                 <span>GST / Tax (18%)</span>
                 <span className="font-mono">
-                  ₹{Number(quotation?.taxAmount || 0).toLocaleString('en-IN')}
+                  ₹{Math.round(liveFinancials.taxAmount).toLocaleString('en-IN')}
                 </span>
               </div>
               <div className="border-t border-slate-200 dark:border-zinc-800 pt-2.5 flex justify-between text-sm font-bold text-slate-900 dark:text-white">
                 <span>Total Deal Value</span>
                 <span className="font-mono">
-                  ₹{Number(quotation?.totalAmount || 0).toLocaleString('en-IN')}
+                  ₹{Math.round(liveFinancials.totalAmount).toLocaleString('en-IN')}
                 </span>
               </div>
             </div>
