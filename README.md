@@ -16,8 +16,7 @@
 | :--- | :--- | :--- |
 | **Frontend Web App** | [https://odoo-dealflow-360.netlify.app/](https://odoo-dealflow-360.netlify.app/) | Complete Staff ERP + Customer Direct Portal |
 | **Backend REST API** | [https://odoo-dealflow360.onrender.com](https://odoo-dealflow360.onrender.com) | Express 5 TypeScript API on Render |
-| **API Documentation** | [https://odoo-dealflow360.onrender.com/api-docs](https://odoo-dealflow360.onrender.com/api-docs) | Interactive Swagger/OpenAPI 3.0 Specs |
-| **Health Check Endpoint** | [https://odoo-dealflow360.onrender.com/health](https://odoo-dealflow360.onrender.com/health) | Uptime & Database Connectivity Monitor |
+| **Health Check Endpoint** | [https://odoo-dealflow360.onrender.com/api/health](https://odoo-dealflow360.onrender.com/health) | Uptime & Database Connectivity Monitor |
 
 ---
 
