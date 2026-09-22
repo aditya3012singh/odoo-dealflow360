@@ -9,7 +9,7 @@
 > **DealFlow360** is an enterprise-grade, self-governing B2B commercial operations platform. It unifies complex quotation drafting, algorithmic blended margin risk governance, dynamic multi-tier manager/finance approvals, zero-trust live customer negotiation, multi-hub inventory split routing, and hybrid billing (capital hardware + recurring cloud SLAs) into a single, cohesive workflow.
 
 ---
-
+   
 ## 🌐 Live Deployments & Quick Links
 
 | Resource | Live URL | Description |
